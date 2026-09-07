@@ -1,20 +1,20 @@
 import sqlite3
 import os
 import functools
-from flask import Flask, request, jsonify, render_template_string, session, redirect, url_for
+from flask import Flask, request, jsonify, render_template_string, session
 from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
-app.secret_key = os.urandom(24) # Clé de session sécurisée
+app.secret_key = os.urandom(24)
 
-DB_FILE = "symphonie_menu.db"
+# Chemin absolu garanti pour Render et Gunicorn
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_FILE = os.path.join(BASE_DIR, "symphonie_menu.db")
 
-# Initialisation de la base de données
 def init_db():
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     
-    # Table Administrateurs
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS admin (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -23,7 +23,6 @@ def init_db():
         )
     ''')
     
-    # Table Catégories
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS categories (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -32,7 +31,6 @@ def init_db():
         )
     ''')
     
-    # Table Plats
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS menu_items (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -44,15 +42,15 @@ def init_db():
         )
     ''')
     
-    # Créer le compte admin par défaut s'il n'existe pas (login: admin / pass: Symphonie2026!)
     cursor.execute("SELECT * FROM admin WHERE username = 'admin'")
     if not cursor.fetchone():
         hashed_pass = generate_password_hash("Symphonie2026!", method='pbkdf2:sha256')
         cursor.execute("INSERT INTO admin (username, password_hash) VALUES (?, ?)", ('admin', hashed_pass))
 
-    # Pré-remplir les données si la BDD est vide
     cursor.execute("SELECT COUNT(*) FROM categories")
-    if cursor.fetchone()[0] == 0:
+    count = cursor.fetchone()[0]
+    
+    if count == 0:
         menu_data = {
             "Les plats gastro volailles": ["Escalope de poulet grillé", "Escalope à la crème", "Escalope panée", "Escalope malinaise", "Escalope à bormjaina", "Kabab de volaille", "Cordon bleu", "Cuisse marinée", "Cuisse panée"],
             "Viande Rouge": ["Entrecôte du boeuf grillé", "Entrecôte normande", "Entrecôte chasseur", "Entrecôte beurre de maître d'hôtel", "Entrecôte sauce moutarde", "Mix grillade", "Filet sauce barbecue", "Filet"],
@@ -78,7 +76,6 @@ def init_db():
     conn.commit()
     conn.close()
 
-# Middleware d'authentification
 def login_required(f):
     @functools.wraps(f)
     def decorated_function(*args, **kwargs):
@@ -87,9 +84,9 @@ def login_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
-# Routes API
 @app.route('/api/menu', methods=['GET'])
 def get_menu():
+    init_db()  # Auto-initialisation systématique
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     cursor.execute("SELECT id, name FROM categories ORDER BY display_order")
@@ -113,6 +110,7 @@ def login():
     username = data.get('username')
     password = data.get('password')
     
+    init_db()
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     cursor.execute("SELECT password_hash FROM admin WHERE username = ?", (username,))
@@ -139,25 +137,6 @@ def update_item():
     conn.close()
     return jsonify({'success': True})
 
-@app.route('/api/admin/add-item', methods=['POST'])
-@login_required
-def add_item():
-    data = request.json or {}
-    category_id = data.get('category_id')
-    name = data.get('name')
-    price = data.get('price', 0.0)
-    
-    if not name or not category_id:
-        return jsonify({'error': 'Données invalides'}), 400
-        
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute("INSERT INTO menu_items (category_id, name, price, available) VALUES (?, ?, ?, 1)", (category_id, name, price))
-    conn.commit()
-    conn.close()
-    return jsonify({'success': True})
-
-# Application Frontend
 HTML_CLIENT = """
 <!DOCTYPE html>
 <html lang="fr">
@@ -192,23 +171,22 @@ HTML_CLIENT = """
     <div class="container py-3">
         <input type="text" id="searchInput" class="form-control search-box mb-3" placeholder="🔍 Rechercher un plat, boisson...">
         
-        <div id="categoryNav" class="d-flex overflow-auto pb-2 mb-3">
-            <!-- Badges catégories injectés dynamiquement -->
-        </div>
-
-        <div id="menuContainer">
-            <!-- Plats injectés dynamiquement -->
-        </div>
+        <div id="categoryNav" class="d-flex overflow-auto pb-2 mb-3"></div>
+        <div id="menuContainer"></div>
     </div>
 
     <script>
         let fullMenu = [];
 
         async function loadMenu() {
-            const res = await fetch('/api/menu');
-            fullMenu = await res.json();
-            renderCategoryNav();
-            renderMenu(fullMenu);
+            try {
+                const res = await fetch('/api/menu');
+                fullMenu = await res.json();
+                renderCategoryNav();
+                renderMenu(fullMenu);
+            } catch(e) {
+                console.error("Erreur de chargement", e);
+            }
         }
 
         function renderCategoryNav() {
@@ -279,5 +257,4 @@ def client_view():
 init_db()
 
 if __name__ == '__main__':
-    # Démarrage du serveur
     app.run(host='0.0.0.0', port=5001, debug=True)
