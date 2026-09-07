@@ -276,7 +276,8 @@ HTML_CLIENT = """
 def client_view():
     return render_template_string(HTML_CLIENT)
 
+init_db()
+
 if __name__ == '__main__':
-    init_db()
     # Démarrage du serveur
     app.run(host='0.0.0.0', port=5001, debug=True)
