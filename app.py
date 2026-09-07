@@ -1,6 +1,8 @@
 import sqlite3
 import os
-from flask import Flask, request, jsonify, render_template_string
+import qrcode
+import io
+from flask import Flask, request, jsonify, render_template_string, send_file
 
 app = Flask(__name__)
 
@@ -52,16 +54,7 @@ def get_menu():
         conn.close()
         return jsonify(result)
     except Exception as e:
-        return jsonify([
-            {
-                'id': 1, 
-                'category': 'Les plats gastro volailles', 
-                'items': [
-                    {'id': 1, 'name': 'Escalope de poulet grillé', 'price': 800, 'available': 1},
-                    {'id': 2, 'name': 'Cordon bleu', 'price': 1000, 'available': 1}
-                ]
-            }
-        ])
+        return jsonify([])
 
 @app.route('/api/categories', methods=['POST'])
 def add_category():
@@ -119,6 +112,18 @@ def update_price(id):
     conn.close()
     return jsonify({'success': True})
 
+@app.route('/admin/download-qrcode')
+def download_qrcode():
+    base_url = request.host_url.rstrip('/')
+    qr = qrcode.QRCode(version=1, box_size=10, border=5)
+    qr.add_data(base_url)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white")
+    buffer = io.BytesIO()
+    img.save(buffer, format="PNG")
+    buffer.seek(0)
+    return send_file(buffer, mimetype='image/png', as_attachment=True, download_name='qrcode_symphonie.png')
+
 HTML_CLIENT = """
 <!DOCTYPE html>
 <html lang="fr">
@@ -166,7 +171,6 @@ HTML_CLIENT = """
         }
         function renderNav() {
             const nav = document.getElementById('categoryNav');
-            // Correction propre des guillemets pour éviter tout conflit JS
             nav.innerHTML = `<button class="btn category-badge active" onclick="filterCat('all', this)">Tous</button>`;
             fullMenu.forEach(c => {
                 nav.innerHTML += `<button class="btn category-badge" onclick="filterCat(${c.id}, this)">${c.category}</button>`;
@@ -227,8 +231,14 @@ HTML_ADMIN = """
     </style>
 </head>
 <body>
-    <div class="admin-header">
-        <h3 class="m-0"><i class="fas fa-cogs"></i> Tableau de Bord Gérant</h3>
+    <div class="admin-header d-flex justify-content-between align-items-center px-4">
+        <div></div>
+        <div>
+            <h3 class="m-0"><i class="fas fa-cogs"></i> Tableau de Bord Gérant</h3>
+        </div>
+        <div>
+            <a href="/admin/download-qrcode" class="btn btn-warning fw-bold"><i class="fas fa-qrcode"></i> Télécharger le QR Code</a>
+        </div>
     </div>
     <div class="container">
         <div class="row mb-4">
@@ -342,4 +352,4 @@ def admin_page():
     return render_template_string(HTML_ADMIN)
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5001, debug=True)
+    app.run(host='0.0.0.0', port=5002, debug=True)

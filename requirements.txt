@@ -7,3 +7,6 @@ MarkupSafe==3.0.3
 qrcode==8.2
 Werkzeug==3.1.8
 gunicorn
+Flask
+qrcode
+Pillow
