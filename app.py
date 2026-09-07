@@ -7,7 +7,6 @@ from werkzeug.security import generate_password_hash, check_password_hash
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
 
-# Chemin absolu garanti pour Render et Gunicorn
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_FILE = os.path.join(BASE_DIR, "symphonie_menu.db")
 
@@ -44,7 +43,7 @@ def init_db():
     
     cursor.execute("SELECT * FROM admin WHERE username = 'admin'")
     if not cursor.fetchone():
-        hashed_pass = generate_password_hash("Symphonie2026!", method='pbkdf2:sha256')
+        hashed_pass = generate_password_hash("Symphonie2026!")
         cursor.execute("INSERT INTO admin (username, password_hash) VALUES (?, ?)", ('admin', hashed_pass))
 
     cursor.execute("SELECT COUNT(*) FROM categories")
@@ -76,6 +75,12 @@ def init_db():
     conn.commit()
     conn.close()
 
+# Initialisation au démarrage
+try:
+    init_db()
+except Exception as e:
+    print(f"Erreur d'initialisation BDD: {e}")
+
 def login_required(f):
     @functools.wraps(f)
     def decorated_function(*args, **kwargs):
@@ -86,7 +91,7 @@ def login_required(f):
 
 @app.route('/api/menu', methods=['GET'])
 def get_menu():
-    init_db()  # Auto-initialisation systématique
+    init_db()
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     cursor.execute("SELECT id, name FROM categories ORDER BY display_order")
@@ -253,8 +258,6 @@ HTML_CLIENT = """
 @app.route('/')
 def client_view():
     return render_template_string(HTML_CLIENT)
-
-init_db()
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5001, debug=True)
