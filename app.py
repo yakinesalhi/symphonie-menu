@@ -13,41 +13,44 @@ def get_db():
     return conn
 
 def init_db():
-    conn = get_db()
-    conn.execute('''
-        CREATE TABLE IF NOT EXISTS categories (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT UNIQUE NOT NULL
-        )
-    ''')
-    conn.execute('''
-        CREATE TABLE IF NOT EXISTS menu_items (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            category_id INTEGER,
-            name TEXT NOT NULL,
-            price REAL DEFAULT 0,
-            available INTEGER DEFAULT 1,
-            FOREIGN KEY (category_id) REFERENCES categories (id)
-        )
-    ''')
-    
-    # Remplissage automatique si la base est vide
-    if conn.execute("SELECT COUNT(*) FROM categories").fetchone()[0] == 0:
-        cats = ["Les plats gastro volailles", "Viande Rouge", "Entrée Chaude", "Boissons fraîches", "Dessert"]
-        for c in cats:
-            conn.execute("INSERT INTO categories (name) VALUES (?)", (c,))
+    try:
+        conn = get_db()
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS categories (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT UNIQUE NOT NULL
+            )
+        ''')
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS menu_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                category_id INTEGER,
+                name TEXT NOT NULL,
+                price REAL DEFAULT 0,
+                available INTEGER DEFAULT 1,
+                FOREIGN KEY (category_id) REFERENCES categories (id)
+            )
+        ''')
         
-        # Quelques plats par défaut
-        items_data = [
-            (1, 'Escalope de poulet grillé', 800), (1, 'Cordon bleu', 1000),
-            (2, 'Entrecôte du boeuf grillé', 1500), (3, 'Chorba frik', 400),
-            (4, 'Coca cola canette', 150), (4, 'Jus d\'orange naturel', 300),
-            (5, 'Fondant chocolat', 450)
-        ]
-        for cat_id, name, price in items_data:
-            conn.execute("INSERT INTO menu_items (category_id, name, price) VALUES (?, ?, ?)", (cat_id, name, price))
-        conn.commit()
-    conn.close()
+        # Remplissage automatique si la base est vide
+        if conn.execute("SELECT COUNT(*) FROM categories").fetchone()[0] == 0:
+            cats = ["Les plats gastro volailles", "Viande Rouge", "Entrée Chaude", "Boissons fraîches", "Dessert"]
+            for c in cats:
+                conn.execute("INSERT INTO categories (name) VALUES (?)", (c,))
+            
+            # Quelques plats par défaut
+            items_data = [
+                (1, 'Escalope de poulet grillé', 800), (1, 'Cordon bleu', 1000),
+                (2, 'Entrecôte du boeuf grillé', 1500), (3, 'Chorba frik', 400),
+                (4, 'Coca cola canette', 150), (4, 'Jus d\'orange naturel', 300),
+                (5, 'Fondant chocolat', 450)
+            ]
+            for cat_id, name, price in items_data:
+                conn.execute("INSERT INTO menu_items (category_id, name, price) VALUES (?, ?, ?)", (cat_id, name, price))
+            conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"Erreur DB: {e}")
 
 init_db()
 
@@ -55,6 +58,7 @@ init_db()
 
 @app.route('/api/menu')
 def get_menu():
+    init_db() # <-- LE CORRECTIF EST ICI (Auto-réparation systématique)
     conn = get_db()
     cats = conn.execute("SELECT * FROM categories ORDER BY id").fetchall()
     result = []
@@ -159,16 +163,22 @@ HTML_CLIENT = """
     <div class="container py-3">
         <input type="text" id="searchInput" class="form-control search-box mb-3" placeholder="🔍 Rechercher un plat, boisson...">
         <div id="categoryNav" class="d-flex overflow-auto pb-2 mb-3"></div>
-        <div id="menuContainer"></div>
+        <div id="menuContainer">
+            <div class="text-center text-warning mt-5">Chargement du menu en cours...</div>
+        </div>
     </div>
 
     <script>
         let fullMenu = [];
         async function loadMenu() {
-            const res = await fetch('/api/menu');
-            fullMenu = await res.json();
-            renderNav();
-            renderMenu(fullMenu);
+            try {
+                const res = await fetch('/api/menu');
+                fullMenu = await res.json();
+                renderNav();
+                renderMenu(fullMenu);
+            } catch (e) {
+                document.getElementById('menuContainer').innerHTML = '<div class="text-center text-danger mt-5">Erreur de connexion. Veuillez rafraîchir la page.</div>';
+            }
         }
         function renderNav() {
             const nav = document.getElementById('categoryNav');
@@ -241,7 +251,6 @@ HTML_ADMIN = """
     </div>
 
     <div class="container">
-        <!-- Zone d'ajout (Catégories et Plats) -->
         <div class="row mb-4">
             <div class="col-md-6 mb-3">
                 <div class="card h-100">
@@ -270,7 +279,6 @@ HTML_ADMIN = """
         </div>
 
         <h4 class="mb-3 text-secondary border-bottom pb-2">Menu Actuel</h4>
-        <!-- Liste des catégories et plats -->
         <div id="adminMenu"></div>
     </div>
 
