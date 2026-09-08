@@ -353,9 +353,9 @@ HTML_CLIENT = """
             border: 1px solid var(--border-gold); 
             margin: 4px; 
             border-radius: 4px; 
-            padding: 8px 18px;
+            padding: 5px 12px;
             font-family: 'Cormorant Garamond', serif;
-            font-size: 1.05rem; 
+            font-size: 0.95rem; 
             font-weight: 600;
             letter-spacing: 1px;
             text-transform: uppercase;
@@ -460,7 +460,6 @@ HTML_CLIENT = """
     </div>
 
     <div class="container py-3" style="max-width: 720px;">
-        <input type="text" id="searchInput" class="form-control search-box mb-4" placeholder="🔍 Rechercher un plat, un rafraîchissement...">
         <div id="categoryNav" class="d-flex overflow-auto pb-2 mb-3 category-nav"></div>
         <div id="menuContainer"><div class="text-center text-warning mt-5"><i class="fas fa-spinner fa-spin fa-2x mb-3"></i><br>Chargement du menu...</div></div>
         
@@ -523,14 +522,6 @@ HTML_CLIENT = """
                 container.innerHTML += html;
             });
         }
-
-        document.getElementById('searchInput').addEventListener('input', (e) => {
-            const term = e.target.value.toLowerCase();
-            const filtered = fullMenu.map(cat => ({
-                ...cat, items: cat.items.filter(i => i.name.toLowerCase().includes(term))
-            })).filter(cat => cat.items.length > 0);
-            renderMenu(filtered);
-        });
 
         loadMenu();
     </script>
