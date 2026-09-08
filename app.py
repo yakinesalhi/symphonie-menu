@@ -17,55 +17,85 @@ def get_db():
 def init_db():
     try:
         conn = get_db()
-        conn.execute('CREATE TABLE IF NOT EXISTS categories (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL)')
-        conn.execute('CREATE TABLE IF NOT EXISTS menu_items (id INTEGER PRIMARY KEY AUTOINCREMENT, category_id INTEGER, name TEXT NOT NULL, price REAL DEFAULT 0, available INTEGER DEFAULT 1)')
+        conn.execute('CREATE TABLE IF NOT EXISTS categories (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL, position INTEGER DEFAULT 0)')
+        conn.execute('CREATE TABLE IF NOT EXISTS menu_items (id INTEGER PRIMARY KEY AUTOINCREMENT, category_id INTEGER, name TEXT NOT NULL, price REAL DEFAULT 0, available INTEGER DEFAULT 1, position INTEGER DEFAULT 0)')
         
+        try:
+            conn.execute('ALTER TABLE categories ADD COLUMN position INTEGER DEFAULT 0')
+        except:
+            pass
+        try:
+            conn.execute('ALTER TABLE menu_items ADD COLUMN position INTEGER DEFAULT 0')
+        except:
+            pass
+
         if conn.execute("SELECT COUNT(*) FROM categories").fetchone()[0] == 0:
             cats = [
-                "Les plats gastro volailles", "Viande Rouge", "Entre Chaude", 
-                "Les plats traditionnels", "Nos Brochettes", "Pasta", 
-                "Fast food", "Nos poissons", "Boissons fraiches", 
-                "Boissons Chaudes", "Dessert"
+                "Les Plats Gastro Volailles", "Viande Rouge", "Entrées Chaudes", 
+                "Les Plats Traditionnels", "Nos Brochettes", "Pasta", 
+                "Fast Food", "Nos Poissons", "Boissons Fraîches", 
+                "Boissons Chaudes", "Desserts"
             ]
-            for c in cats:
-                conn.execute("INSERT INTO categories (name) VALUES (?)", (c,))
+            for idx, c in enumerate(cats):
+                conn.execute("INSERT INTO categories (name, position) VALUES (?, ?)", (c, idx))
             
             items_data = [
-                (1, 'Escalope de poulet grillé'), (1, 'Escalope à la crème'), (1, 'Escalope panée'), (1, 'Escalope malinaise'), 
-                (1, 'Escalope à bormjaina'), (1, 'Kabab de volai'), (1, 'Cordent bleu'), (1, 'Cuisse mariné'), (1, 'Cuisse pané'),
-                (2, 'Entrecôte du boeuf grillé'), (2, 'Entrecôte normande'), (2, 'Entrecôte chassure'), (2, 'Entrecôte bour de laisse'), 
-                (2, 'Entrecôte sauce motard'), (2, 'Mix grillade'), (2, 'Filet sauce barbecue'), (2, 'Filet'),
-                (3, 'Crème de volai'), (3, 'Soupe de poisson'), (3, 'Soupe de légumes'), (3, 'Chorba frik'), (3, 'Herira'), 
-                (3, 'Bastila'), (3, 'Bourak viande'), (3, 'Bourak poulet'), (3, 'Brik annabi viande'), (3, 'Brik annabi Poulet'), 
-                (3, 'Bourek crevette'), (3, 'Omlette au choix'), (3, 'Omlette royale'), (3, 'Gratin poulet'), (3, 'Gratin viande'), 
-                (3, 'Gratin crevette'), (3, 'Gratin mixte'), (3, 'Gratin fruit de mer'),
-                (4, "Chakhchoukha m'sila"), (4, 'Chakhchoukha bisekra'), (4, 'Chakhchoukha constantine (Trida)'), (4, 'Rechta'), 
-                (4, 'Zeviti'), (4, 'Couscous'), (4, 'Chtitha lsen'), (4, 'Chtitha Viande'), (4, 'Chtitha Moukh'), (4, 'Douwara'), 
-                (4, 'Tadjin zitoune'), (4, 'Jelbana'), (4, 'Mtouwem'), (4, 'Kebab'), (4, 'Aaja'), (4, 'Les abats'), 
-                (4, 'Poulet mfouwer'), (4, 'Viande mfouwer'), (4, 'Bouzelouf'), (4, 'Mechoui (poids)'), (4, 'Cuisse roté'),
-                (5, 'Steak hachée'), (5, 'Tranche de foi'), (5, 'Brochette de foi dinde royal'), (5, 'Brochette merguez'), 
-                (5, 'Brochette de viande royal'), (5, 'Brochette de foie de veau'), (5, 'Brochette melfouf'), (5, 'Brochette kabab'), 
-                (5, 'Entrecôte de boeuf'), (5, "Cote d'agneau"), (5, 'Melange foie + dinde + viande'),
-                (6, 'Spaghetti bolognaise'), (6, 'Spaghetti napolitain'), (6, 'Spaghetti fruits de mer'), (6, 'Spaghetti quatre fromages'), 
-                (6, 'Tagliatelle poulet champignons'), (6, 'Tagliatelle quatre fromages'), (6, 'Tagliatelle saumon'), 
-                (6, 'Tagliatelle camembert'), (6, 'Les linguine aux crevette'),
-                (7, 'Tacos poulet'), (7, 'Tacos viande'), (7, 'Tacos crispy'), (7, 'Tacos Mixte'), (7, 'Burger poulet'), 
-                (7, 'Burger viande'), (7, 'Burger mixte'), (7, 'Burger crispy'), (7, 'Menu enfant au choix'),
-                (8, 'Dorade'), (8, 'Saumon'), (8, 'Calamar'), (8, 'Loup de mer'), (8, 'Sipia en sauce'), (8, 'Espadon'), 
-                (8, 'Crevette grillé'), (8, 'Crevette en sauce'), (8, 'Sardine'), (8, 'Rouget'), (8, 'Pageot'), (8, 'Marbre'), 
-                (8, 'Brouché'), (8, 'Pagre'), (8, 'Mix poisson'),
-                (9, 'Eau GM'), (9, 'Eau PM'), (9, 'Coca 1L'), (9, 'Hamoud 1L'), (9, 'Hamoud Canette'), (9, 'Coca cola canette'), 
-                (9, 'Eau non gazeuse'), (9, "Jus d'orange nature"), (9, 'Jus de citrone nature'), (9, 'Mujito'), (9, 'Jus cocktail'), 
-                (9, 'Jus Symphonie'), (9, 'Milkshake'), (9, 'Café glacé'), (9, 'Jus de banane'), (9, 'Jus de fraise'),
-                (10, 'Café nesspresso'), (10, 'Thé maison Timimoun'), (10, 'Thé lipton au choix'), (10, 'Tisane maison au choix'),
-                (11, 'Crépe simple'), (11, 'Crépe au fruit'), (11, 'Crépe surprise'), (11, 'Crépe banane'), (11, 'Crépe maison'), 
-                (11, 'Gaufre simple'), (11, 'Gaufre au fruit'), (11, 'Gaufre surprise'), (11, 'Gaufre banane'), (11, 'Fondant chocolat'), 
-                (11, 'Mousse chocolat'), (11, 'Crème broulée'), (11, 'Crème caramel'), (11, 'Crème tiramisu'), (11, 'Salade de fruits'), 
-                (11, 'Assiette de fruits')
+                # 1. Les Plats Gastro Volailles
+                (1, 'Escalope de poulet grillée'), (1, 'Escalope à la crème'), (1, 'Escalope panée'), (1, 'Escalope milanaise'), 
+                (1, 'Escalope borjaina'), (1, 'Kebab de volaille'), (1, 'Cordon bleu'), (1, 'Cuisse marinée'), (1, 'Cuisse panée'),
+                
+                # 2. Viande Rouge
+                (2, 'Entrecôte de bœuf grillée'), (2, 'Entrecôte normande'), (2, 'Entrecôte chasseur'), (2, 'Entrecôte bordelaise'), 
+                (2, 'Entrecôte sauce moutarde'), (2, 'Mix grillades'), (2, 'Filet sauce barbecue'), (2, 'Filet de bœuf'),
+                
+                # 3. Entrées Chaudes
+                (3, 'Velouté de volaille'), (3, 'Soupe de poisson'), (3, 'Soupe de légumes'), (3, 'Chorba Frik'), (3, 'Hrira'), 
+                (3, 'Pastilla'), (3, 'Bourek à la viande'), (3, 'Bourek au poulet'), (3, 'Brik Annabi à la viande'), (3, 'Brik Annabi au poulet'), 
+                (3, 'Bourek aux crevettes'), (3, 'Omelette au choix'), (3, 'Omelette royale'), (3, 'Gratin de poulet'), (3, 'Gratin de viande'), 
+                (3, 'Gratin de crevettes'), (3, 'Gratin mixte'), (3, 'Gratin de fruits de mer'),
+                
+                # 4. Les Plats Traditionnels
+                (4, "Chakhchoukha de M'Sila"), (4, 'Chakhchoukha de Biskra'), (4, 'Trida de Constantine'), (4, 'Rechta'), 
+                (4, 'Zviti'), (4, 'Couscous Traditionnel'), (4, 'Chtitha Lsan (Langue)'), (4, 'Chtitha Viande'), (4, 'Chtitha Moukh (Cervelle)'), (4, 'Douwara'), 
+                (4, 'Tajine Zitoune'), (4, 'Jelbana'), (4, 'Mtouwem'), (4, 'Kebab Traditionnel'), (4, 'Ojja / Aaja'), (4, 'Les Abats'), 
+                (4, 'Poulet Mfouwer (Vapeur)'), (4, 'Viande Mfouwer (Vapeur)'), (4, 'Bouzelouf'), (4, 'Méchoui (au poids)'), (4, 'Cuisse rôtie'),
+                
+                # 5. Nos Brochettes
+                (5, 'Steak haché'), (5, 'Tranche de foie'), (5, 'Brochette de foie de dinde royale'), (5, 'Brochette merguez'), 
+                (5, 'Brochette de viande royale'), (5, 'Brochette de foie de veau'), (5, 'Brochette Melfouf'), (5, 'Brochette Kebab'), 
+                (5, "Brochette d'entrecôte de bœuf"), (5, "Côte d'agneau"), (5, 'Mélange Foie, Dinde & Viande'),
+                
+                # 6. Pasta
+                (6, 'Spaghetti Bolognaise'), (6, 'Spaghetti Napolitaine'), (6, 'Spaghetti aux Fruits de Mer'), (6, 'Spaghetti Quatre Fromages'), 
+                (6, 'Tagliatelles Poulet & Champignons'), (6, 'Tagliatelles Quatre Fromages'), (6, 'Tagliatelles au Saumon'), 
+                (6, 'Tagliatelles au Camembert'), (6, 'Linguine aux Crevettes'),
+                
+                # 7. Fast Food
+                (7, 'Tacos Poulet'), (7, 'Tacos Viande Hachée'), (7, 'Tacos Crispy'), (7, 'Tacos Mixte'), (7, 'Burger Poulet'), 
+                (7, 'Burger Viande'), (7, 'Burger Mixte'), (7, 'Burger Crispy'), (7, 'Menu Enfant au Choix'),
+                
+                # 8. Nos Poissons
+                (8, 'Dorade Grillée'), (8, 'Pavé de Saumon'), (8, 'Calamars Grillés / Frits'), (8, 'Loup de Mer'), (8, 'Seiche en Sauce'), (8, 'Steak d\'Espadon'), 
+                (8, 'Crevettes Grillées'), (8, 'Crevettes Sautées en Sauce'), (8, 'Sardines Grillées'), (8, 'Rouget Frit / Grillé'), (8, 'Pageot'), (8, 'Marbré'), 
+                (8, 'Brochet'), (8, 'Pagre'), (8, 'Plateau Mix Poissons'),
+                
+                # 9. Boissons Fraîches
+                (9, 'Eau Minérale (Grand Modèle)'), (9, 'Eau Minérale (Petit Modèle)'), (9, 'Coca-Cola 1L'), (9, 'Hamoud Boualem 1L'), (9, 'Hamoud Canette'), (9, 'Coca-Cola Canette'), 
+                (9, 'Eau de Source'), (9, "Jus d'Orange Naturel"), (9, 'Citronnade Naturelle'), (9, 'Mojito Maison (Sans alcool)'), (9, 'Cocktail de Fruits Frais'), 
+                (9, 'Jus Signature Symphonie'), (9, 'Milkshake Gourmand'), (9, 'Café Glacé'), (9, 'Jus de Banane Frais'), (9, 'Jus de Fraise Frais'),
+                
+                # 10. Boissons Chaudes
+                (10, 'Café Nespresso'), (10, 'Thé Traditionnel de Timimoun'), (10, 'Thé Lipton au Choix'), (10, 'Tisane Infusion Maison'),
+                
+                # 11. Desserts
+                (11, 'Crêpe Simple (Sucre/Beurre)'), (11, 'Crêpe aux Fruits'), (11, 'Crêpe Surprise Symphonie'), (11, 'Crêpe Banane Chocolat'), (11, 'Crêpe Spéciale Maison'), 
+                (11, 'Gaufre Simple'), (11, 'Gaufre aux Fruits'), (11, 'Gaufre Surprise'), (11, 'Gaufre Banane Chocolat'), (11, 'Fondant au Chocolat Coeur Coulant'), 
+                (11, 'Mousse au Chocolat Noir'), (11, 'Crème Brûlée à la Vanille'), (11, 'Crème Caramel Onctueuse'), (11, 'Tiramisu Italien Traditionnel'), (11, 'Salade de Fruits Frais'), 
+                (11, 'Assiette de Fruits de Saison')
             ]
             
-            for cat_id, name in items_data:
-                conn.execute("INSERT INTO menu_items (category_id, name, price) VALUES (?, ?, 0)", (cat_id, name))
+            for idx, (cat_id, name) in enumerate(items_data):
+                conn.execute("INSERT INTO menu_items (category_id, name, price, position) VALUES (?, ?, 0, ?)", (cat_id, name, idx))
             
             conn.commit()
         conn.close()
@@ -74,7 +104,7 @@ def init_db():
 
 init_db()
 
-# --- SÉCURITÉ ---
+# --- SÉCURITÉ ADMIN ---
 def check_auth(username, password):
     return username == 'admin' and password == 'symphonie2026'
 
@@ -93,15 +123,15 @@ def requires_auth(f):
         return f(*args, **kwargs)
     return decorated
 
-# --- ROUTES API ---
+# --- API ROUTES ---
 @app.route('/api/menu')
 def get_menu():
     try:
         conn = get_db()
-        cats = conn.execute("SELECT * FROM categories ORDER BY id").fetchall()
+        cats = conn.execute("SELECT * FROM categories ORDER BY position ASC, id ASC").fetchall()
         result = []
         for cat in cats:
-            items = conn.execute("SELECT * FROM menu_items WHERE category_id = ?", (cat['id'],)).fetchall()
+            items = conn.execute("SELECT * FROM menu_items WHERE category_id = ? ORDER BY position ASC, id ASC", (cat['id'],)).fetchall()
             result.append({
                 'id': cat['id'],
                 'category': cat['name'],
@@ -113,18 +143,31 @@ def get_menu():
         return jsonify([])
 
 @app.route('/api/categories', methods=['POST'])
+@requires_auth
 def add_category():
     name = request.json.get('name')
     conn = get_db()
     try:
-        conn.execute("INSERT INTO categories (name) VALUES (?)", (name,))
+        max_pos = conn.execute("SELECT MAX(position) FROM categories").fetchone()[0] or 0
+        conn.execute("INSERT INTO categories (name, position) VALUES (?, ?)", (name, max_pos + 1))
         conn.commit()
     except:
         pass
     conn.close()
     return jsonify({'success': True})
 
+@app.route('/api/categories/<int:id>', methods=['PUT'])
+@requires_auth
+def update_category(id):
+    name = request.json.get('name')
+    conn = get_db()
+    conn.execute("UPDATE categories SET name = ? WHERE id = ?", (name, id))
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True})
+
 @app.route('/api/categories/<int:id>', methods=['DELETE'])
+@requires_auth
 def delete_category(id):
     conn = get_db()
     conn.execute("DELETE FROM menu_items WHERE category_id = ?", (id,))
@@ -133,17 +176,47 @@ def delete_category(id):
     conn.close()
     return jsonify({'success': True})
 
+@app.route('/api/categories/<int:id>/move/<string:direction>', methods=['POST'])
+@requires_auth
+def move_category(id, direction):
+    conn = get_db()
+    cats = conn.execute("SELECT id, position FROM categories ORDER BY position ASC, id ASC").fetchall()
+    cats = [dict(c) for c in cats]
+    idx = next((i for i, c in enumerate(cats) if c['id'] == id), None)
+    
+    if idx is not None:
+        target_idx = idx - 1 if direction == 'up' else idx + 1
+        if 0 <= target_idx < len(cats):
+            conn.execute("UPDATE categories SET position = ? WHERE id = ?", (cats[target_idx]['position'], cats[idx]['id']))
+            conn.execute("UPDATE categories SET position = ? WHERE id = ?", (cats[idx]['position'], cats[target_idx]['id']))
+            conn.commit()
+    conn.close()
+    return jsonify({'success': True})
+
 @app.route('/api/items', methods=['POST'])
+@requires_auth
 def add_item():
     data = request.json
     conn = get_db()
-    conn.execute("INSERT INTO menu_items (category_id, name, price) VALUES (?, ?, ?)", 
-                 (data['category_id'], data['name'], data['price']))
+    max_pos = conn.execute("SELECT MAX(position) FROM menu_items WHERE category_id = ?", (data['category_id'],)).fetchone()[0] or 0
+    conn.execute("INSERT INTO menu_items (category_id, name, price, position) VALUES (?, ?, ?, ?)", 
+                 (data['category_id'], data['name'], data['price'], max_pos + 1))
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True})
+
+@app.route('/api/items/<int:id>', methods=['PUT'])
+@requires_auth
+def update_item(id):
+    data = request.json
+    conn = get_db()
+    conn.execute("UPDATE menu_items SET name = ?, price = ? WHERE id = ?", (data['name'], data['price'], id))
     conn.commit()
     conn.close()
     return jsonify({'success': True})
 
 @app.route('/api/items/<int:id>', methods=['DELETE'])
+@requires_auth
 def delete_item(id):
     conn = get_db()
     conn.execute("DELETE FROM menu_items WHERE id = ?", (id,))
@@ -151,7 +224,27 @@ def delete_item(id):
     conn.close()
     return jsonify({'success': True})
 
+@app.route('/api/items/<int:id>/move/<string:direction>', methods=['POST'])
+@requires_auth
+def move_item(id, direction):
+    conn = get_db()
+    item = conn.execute("SELECT category_id FROM menu_items WHERE id = ?", (id,)).fetchone()
+    if item:
+        cat_id = item['category_id']
+        items = conn.execute("SELECT id, position FROM menu_items WHERE category_id = ? ORDER BY position ASC, id ASC", (cat_id,)).fetchall()
+        items = [dict(i) for i in items]
+        idx = next((i for i, elem in enumerate(items) if elem['id'] == id), None)
+        if idx is not None:
+            target_idx = idx - 1 if direction == 'up' else idx + 1
+            if 0 <= target_idx < len(items):
+                conn.execute("UPDATE menu_items SET position = ? WHERE id = ?", (items[target_idx]['position'], items[idx]['id']))
+                conn.execute("UPDATE menu_items SET position = ? WHERE id = ?", (items[idx]['position'], items[target_idx]['id']))
+                conn.commit()
+    conn.close()
+    return jsonify({'success': True})
+
 @app.route('/api/toggle/<int:id>', methods=['POST'])
+@requires_auth
 def toggle_item(id):
     conn = get_db()
     conn.execute("UPDATE menu_items SET available = CASE WHEN available = 1 THEN 0 ELSE 1 END WHERE id = ?", (id,))
@@ -159,51 +252,226 @@ def toggle_item(id):
     conn.close()
     return jsonify({'success': True})
 
-@app.route('/api/update-price/<int:id>', methods=['POST'])
-def update_price(id):
-    price = request.json.get('price', 0)
-    conn = get_db()
-    conn.execute("UPDATE menu_items SET price = ? WHERE id = ?", (price, id))
-    conn.commit()
-    conn.close()
-    return jsonify({'success': True})
-
-# --- VUES PAGES ET QR CODE ---
+# --- TEMPLATES UI ---
 HTML_CLIENT = """
 <!DOCTYPE html>
 <html lang="fr">
 <head>
     <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>خيمة السيمفونية - Menu Numérique</title>
+    <title>خيمة السمفونية | Symphonie Restaurant</title>
+    <link href="https://fonts.googleapis.com/css2?family=Amiri:ital,wght@0,400;0,700;1,400&family=Cormorant+Garamond:ital,wght@0,500;0,600;0,700;1,400&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <style>
-        body { background-color: #121212; color: #e0e0e0; font-family: 'Segoe UI', sans-serif; padding-bottom: 30px;}
-        .hero { text-align: center; padding: 30px 15px; background: linear-gradient(180deg, #1f1a0e 0%, #121212 100%); border-bottom: 1px solid #332a15; }
-        .brand-title { color: #d4af37; font-size: 2.2rem; font-weight: bold; margin-bottom: 0; }
-        .brand-subtitle { color: #f3e5ab; font-size: 1.2rem; font-style: italic; }
-        .category-badge { background-color: #242424; color: #d4af37; border: 1px solid #d4af37; margin: 4px; border-radius: 20px; font-size: 0.9rem; white-space: nowrap;}
-        .category-badge.active { background-color: #d4af37; color: #121212; font-weight: bold; }
-        .menu-card { background-color: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 10px; margin-bottom: 12px; padding: 15px; display: flex; justify-content: space-between; align-items: center; }
-        .item-name { font-size: 1.1rem; color: #ffffff; font-weight: 500; }
-        .item-price { font-size: 1.1rem; color: #d4af37; font-weight: bold; }
-        .out-of-stock { opacity: 0.5; text-decoration: line-through; }
-        .badge-rupture { background-color: #dc3545; color: white; font-size: 0.75rem; padding: 3px 8px; border-radius: 4px; }
-        .search-box { background-color: #1a1a1a; border: 1px solid #333; color: white; border-radius: 25px; padding: 10px 20px; }
-        .search-box:focus { background-color: #222; color: white; border-color: #d4af37; box-shadow: none; }
+        :root {
+            --gold-primary: #d4af37;
+            --gold-light: #f3e5ab;
+            --gold-gradient: linear-gradient(135deg, #f3e5ab 0%, #d4af37 50%, #aa7c11 100%);
+            --bg-dark: #0a0a0a;
+            --card-bg: rgba(20, 20, 20, 0.85);
+            --border-gold: rgba(212, 175, 55, 0.25);
+        }
+        body { 
+            background-color: var(--bg-dark); 
+            color: #f0f0f0; 
+            font-family: 'Plus Jakarta Sans', sans-serif; 
+            padding-bottom: 50px;
+            background-image: radial-gradient(circle at 50% 0%, #1a1408 0%, #0a0a0a 80%);
+            background-attachment: fixed;
+        }
+        .hero { 
+            text-align: center; 
+            padding: 45px 20px 25px; 
+            background: linear-gradient(180deg, rgba(30,23,10,0.85) 0%, rgba(10,10,10,0) 100%);
+            border-bottom: 1px solid var(--border-gold); 
+            position: relative;
+        }
+        .royal-crest {
+            font-size: 2rem;
+            background: var(--gold-gradient);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 5px;
+        }
+        .brand-title-ar { 
+            font-family: 'Amiri', serif;
+            color: var(--gold-primary); 
+            font-size: 2.9rem; 
+            font-weight: 700; 
+            line-height: 1.2;
+            text-shadow: 0 2px 10px rgba(212, 175, 55, 0.2);
+            margin-bottom: 0;
+        }
+        .brand-subtitle { 
+            font-family: 'Cormorant Garamond', serif;
+            color: var(--gold-light); 
+            font-size: 1.25rem; 
+            letter-spacing: 4px;
+            text-transform: uppercase;
+            font-weight: 600;
+            margin-top: 5px;
+        }
+        .gold-divider {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 15px auto 5px;
+            width: 50%;
+            max-width: 200px;
+        }
+        .gold-divider::before, .gold-divider::after {
+            content: '';
+            flex: 1;
+            border-bottom: 1px solid var(--border-gold);
+        }
+        .gold-divider i {
+            color: var(--gold-primary);
+            padding: 0 10px;
+            font-size: 0.75rem;
+        }
+        .search-box { 
+            background: rgba(20, 20, 20, 0.8); 
+            border: 1px solid var(--border-gold); 
+            color: #ffffff; 
+            border-radius: 30px; 
+            padding: 12px 25px; 
+            backdrop-filter: blur(10px);
+            font-size: 0.95rem;
+            transition: all 0.3s ease;
+        }
+        .search-box:focus { 
+            background: rgba(30, 30, 30, 0.95); 
+            color: #ffffff; 
+            border-color: var(--gold-primary); 
+            box-shadow: 0 0 15px rgba(212, 175, 55, 0.3); 
+        }
+        .category-nav { scrollbar-width: none; }
+        .category-nav::-webkit-scrollbar { display: none; }
+        .category-badge { 
+            background: rgba(25, 25, 25, 0.7); 
+            color: #d0d0d0; 
+            border: 1px solid var(--border-gold); 
+            margin: 4px; 
+            border-radius: 4px; 
+            padding: 8px 18px;
+            font-family: 'Cormorant Garamond', serif;
+            font-size: 1.05rem; 
+            font-weight: 600;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            white-space: nowrap;
+            transition: all 0.3s ease;
+            backdrop-filter: blur(5px);
+        }
+        .category-badge.active { 
+            background: var(--gold-gradient); 
+            color: #0a0a0a; 
+            font-weight: 700; 
+            border-color: var(--gold-primary);
+            box-shadow: 0 4px 15px rgba(212, 175, 55, 0.25);
+        }
+        .section-header {
+            font-family: 'Cormorant Garamond', serif;
+            color: var(--gold-primary);
+            font-size: 1.85rem;
+            font-weight: 700;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            text-align: center;
+            margin-top: 40px;
+            margin-bottom: 22px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 15px;
+        }
+        .section-header::before, .section-header::after {
+            content: '';
+            flex: 1;
+            border-bottom: 1px solid var(--border-gold);
+            opacity: 0.5;
+        }
+        .gold-symbol {
+            font-size: 0.85rem;
+            color: var(--gold-light);
+            vertical-align: middle;
+        }
+        .menu-card { 
+            background: var(--card-bg); 
+            border: 1px solid rgba(255, 255, 255, 0.05); 
+            border-left: 3px solid var(--gold-primary);
+            border-radius: 8px; 
+            margin-bottom: 12px; 
+            padding: 16px 20px; 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center; 
+            backdrop-filter: blur(10px);
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+        .menu-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 15px rgba(0, 0, 0, 0.5);
+            border-color: var(--border-gold);
+        }
+        .item-name { 
+            font-size: 1.05rem; 
+            color: #ffffff; 
+            font-weight: 500; 
+            letter-spacing: 0.3px;
+        }
+        .item-price { 
+            font-family: 'Cormorant Garamond', serif;
+            font-size: 1.35rem; 
+            color: var(--gold-primary); 
+            font-weight: 700; 
+            white-space: nowrap;
+            margin-left: 15px;
+        }
+        .out-of-stock { opacity: 0.45; filter: grayscale(80%); }
+        .badge-rupture { 
+            background-color: rgba(220, 53, 69, 0.15); 
+            color: #ff6b6b; 
+            border: 1px solid rgba(220, 53, 69, 0.4);
+            font-size: 0.7rem; 
+            padding: 2px 8px; 
+            border-radius: 4px; 
+            display: inline-block;
+            margin-top: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .footer-brand {
+            text-align: center;
+            margin-top: 50px;
+            padding-top: 25px;
+            border-top: 1px solid var(--border-gold);
+            color: #777;
+            font-size: 0.85rem;
+        }
     </style>
 </head>
 <body>
     <div class="hero">
-        <h1 class="brand-title">خيمة السيمفونية</h1>
+        <div class="royal-crest"><i class="fas fa-crown"></i></div>
+        <h1 class="brand-title-ar">خيمة السمفونية</h1>
         <div class="brand-subtitle">Symphonie Restaurant</div>
+        <div class="gold-divider"><i class="fas fa-star"></i></div>
     </div>
-    <div class="container py-3">
-        <input type="text" id="searchInput" class="form-control search-box mb-3" placeholder="🔍 Rechercher un plat, boisson...">
-        <div id="categoryNav" class="d-flex overflow-auto pb-2 mb-3"></div>
-        <div id="menuContainer"><div class="text-center text-warning mt-5">Chargement du menu...</div></div>
+
+    <div class="container py-3" style="max-width: 720px;">
+        <input type="text" id="searchInput" class="form-control search-box mb-4" placeholder="🔍 Rechercher un plat, un rafraîchissement...">
+        <div id="categoryNav" class="d-flex overflow-auto pb-2 mb-3 category-nav"></div>
+        <div id="menuContainer"><div class="text-center text-warning mt-5"><i class="fas fa-spinner fa-spin fa-2x mb-3"></i><br>Chargement du menu...</div></div>
+        
+        <div class="footer-brand">
+            <p class="m-0"></p>
+        </div>
     </div>
+
     <script>
         let fullMenu = [];
+
         async function loadMenu() {
             try {
                 const res = await fetch('/api/menu');
@@ -211,40 +479,51 @@ HTML_CLIENT = """
                 renderNav();
                 renderMenu(fullMenu);
             } catch (e) {
-                document.getElementById('menuContainer').innerHTML = '<div class="text-center text-danger mt-5">Erreur de chargement.</div>';
+                document.getElementById('menuContainer').innerHTML = '<div class="text-center text-danger mt-5">Erreur de chargement du menu.</div>';
             }
         }
+
         function renderNav() {
             const nav = document.getElementById('categoryNav');
             nav.innerHTML = `<button class="btn category-badge active" onclick="filterCat('all', this)">Tous</button>`;
             fullMenu.forEach(c => {
-                nav.innerHTML += `<button class="btn category-badge" onclick="filterCat(${c.id}, this)">${c.category}</button>`;
+                if(c.items.length > 0) {
+                    nav.innerHTML += `<button class="btn category-badge" onclick="filterCat(${c.id}, this)">${c.category}</button>`;
+                }
             });
         }
+
         function filterCat(id, btn) {
             document.querySelectorAll('.category-badge').forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
             renderMenu(id === 'all' ? fullMenu : fullMenu.filter(c => c.id === id));
         }
+
         function renderMenu(data) {
             const container = document.getElementById('menuContainer');
             container.innerHTML = '';
             data.forEach(cat => {
                 if(cat.items.length === 0) return;
-                let html = `<h4 class="text-warning mt-4 mb-3 border-bottom border-secondary pb-1">${cat.category}</h4>`;
+                let html = `
+                    <div class="section-header">
+                        <span class="gold-symbol">✦</span>
+                        <span>${cat.category}</span>
+                        <span class="gold-symbol">✦</span>
+                    </div>`;
                 cat.items.forEach(item => {
                     html += `
                         <div class="menu-card ${!item.available ? 'out-of-stock' : ''}">
                             <div>
-                                <span class="item-name">${item.name}</span>
-                                ${!item.available ? '<br><span class="badge-rupture">Non disponible</span>' : ''}
+                                <div class="item-name">${item.name}</div>
+                                ${!item.available ? '<span class="badge-rupture"><i class="fas fa-times-circle"></i> Indisponible</span>' : ''}
                             </div>
-                            <div class="item-price">${item.price > 0 ? item.price + ' DA' : '—'}</div>
+                            <div class="item-price">${item.price > 0 ? item.price + ' <small style="font-size: 0.8rem;">DA</small>' : '—'}</div>
                         </div>`;
                 });
                 container.innerHTML += html;
             });
         }
+
         document.getElementById('searchInput').addEventListener('input', (e) => {
             const term = e.target.value.toLowerCase();
             const filtered = fullMenu.map(cat => ({
@@ -252,6 +531,7 @@ HTML_CLIENT = """
             })).filter(cat => cat.items.length > 0);
             renderMenu(filtered);
         });
+
         loadMenu();
     </script>
 </body>
@@ -265,34 +545,42 @@ HTML_ADMIN = """
     <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Espace Gérant - Symphonie</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <style>
-        body { background: #f4f6f9; padding-bottom: 50px; font-family: 'Segoe UI', sans-serif; }
-        .admin-header { background: #1a160d; color: #d4af37; padding: 20px; text-align: center; border-bottom: 3px solid #d4af37; margin-bottom: 25px; }
-        .card { border: none; border-radius: 12px; box-shadow: 0 4px 8px rgba(0,0,0,0.05); margin-bottom: 20px; overflow: hidden; }
-        .item-row { display: flex; justify-content: space-between; align-items: center; padding: 12px 15px; border-bottom: 1px solid #eee; background: white;}
-        .item-name { font-weight: 600; color: #333; }
-        .controls-group { display: flex; align-items: center; gap: 8px; }
+        body { background: #f4f6f9; padding-bottom: 60px; font-family: 'Segoe UI', sans-serif; }
+        .admin-header { background: #1a160d; color: #d4af37; padding: 30px; border-bottom: 3px solid #d4af37; margin-bottom: 25px; }
+        .card { border: none; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.06); margin-bottom: 20px; overflow: hidden; }
+        .item-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 15px; border-bottom: 1px solid #f0f0f0; background: white;}
+        .item-row:hover { background: #fdfdfd; }
+        .controls-group { display: flex; align-items: center; gap: 6px; }
+        .btn-move { padding: 2px 8px; font-size: 0.8rem; }
     </style>
 </head>
 <body>
-    <div class="admin-header d-flex justify-content-between align-items-center px-4">
-        <div></div>
+    <div class="admin-header">
+    <div class="container d-flex justify-content-between align-items-center" style="max-width: 950px;">
         <div>
-            <h3 class="m-0"><i class="fas fa-cogs"></i> Tableau de Bord Gérant</h3>
+            <h3 class="m-0 text-warning fw-bold"><i class="fas fa-sliders"></i> Espace Gérant - Symphonie</h3>
         </div>
-        <div>
-            <a href="/admin/download-qrcode" class="btn btn-warning fw-bold"><i class="fas fa-qrcode"></i> Télécharger le QR Code</a>
+        <div class="d-flex gap-2">
+            <!-- Bouton 1 : Téléchargement direct du QR Code -->
+            <a href="/admin/download-qrcode" class="btn btn-warning btn-sm fw-bold d-flex align-items-center gap-2 px-3">
+                <i class="fas fa-qrcode"></i> Télécharger QR Code
+            </a>
         </div>
     </div>
-    <div class="container">
+</div>
+
+    <div class="container" style="max-width: 950px;">
         <div class="row mb-4">
             <div class="col-md-6 mb-3">
                 <div class="card h-100"><div class="card-body">
                     <h6 class="text-primary fw-bold"><i class="fas fa-folder-plus"></i> Nouvelle Catégorie</h6>
                     <div class="d-flex gap-2 mt-3">
                         <input type="text" id="newCatName" class="form-control" placeholder="Nom de la catégorie">
-                        <button class="btn btn-primary px-4" onclick="addCategory()">Ajouter</button>
+                        <button class="btn btn-primary px-3" onclick="addCategory()">Ajouter</button>
                     </div>
                 </div></div>
             </div>
@@ -302,50 +590,85 @@ HTML_ADMIN = """
                     <div class="d-flex gap-2 flex-wrap mt-3">
                         <select id="newItemCat" class="form-select w-100"></select>
                         <input type="text" id="newItemName" class="form-control" placeholder="Nom du plat" style="flex: 2;">
-                        <input type="number" id="newItemPrice" class="form-control" placeholder="Prix" style="flex: 1;">
-                        <button class="btn btn-success" onclick="addItem()">Ajouter</button>
+                        <input type="number" id="newItemPrice" class="form-control" placeholder="Prix (DA)" style="flex: 1;">
+                        <button class="btn btn-success px-3" onclick="addItem()">Ajouter</button>
                     </div>
                 </div></div>
             </div>
         </div>
-        <h4 class="mb-3 text-secondary border-bottom pb-2">Menu Actuel</h4>
+
+        <h5 class="mb-3 text-secondary border-bottom pb-2"><i class="fas fa-list-check"></i> Gestion du Menu </h5>
         <div id="adminMenu"></div>
     </div>
+
     <script>
         let fullMenu = [];
-        async function loadData() {
-            const res = await fetch('/api/menu');
-            fullMenu = await res.json();
-            const select = document.getElementById('newItemCat');
-            select.innerHTML = '<option value="">Choisir la catégorie...</option>';
-            fullMenu.forEach(c => select.innerHTML += `<option value="${c.id}">${c.category}</option>`);
-            const container = document.getElementById('adminMenu');
-            container.innerHTML = '';
-            fullMenu.forEach(cat => {
-                let html = `<div class="card"><div class="bg-dark text-white p-3 d-flex justify-content-between align-items-center">
-                    <h5 class="m-0 text-warning">${cat.category}</h5>
-                    <button class="btn btn-sm btn-outline-danger" onclick="deleteCategory(${cat.id})"><i class="fas fa-trash"></i></button>
+
+       async function loadData() {
+    const res = await fetch('/api/menu');
+    fullMenu = await res.json();
+    
+    const select = document.getElementById('newItemCat');
+    select.innerHTML = '<option value="">Choisir la catégorie...</option>';
+    fullMenu.forEach(c => select.innerHTML += `<option value="${c.id}">${c.category}</option>`);
+
+    const container = document.getElementById('adminMenu');
+    container.innerHTML = '';
+
+    fullMenu.forEach((cat) => {
+        let html = `
+        <div class="card mb-3 cat-card" data-id="${cat.id}">
+            <div class="bg-dark text-white p-3 d-flex justify-content-between align-items-center">
+                <div class="d-flex align-items-center gap-2">
+                    <!-- Poignée de glissement pour la catégorie -->
+                    <i class="fas fa-grip-vertical text-warning opacity-75 drag-handle-cat me-2" style="cursor: grab; font-size: 1.2rem;"></i>
+                    <input type="text" class="form-control form-control-sm bg-transparent text-warning fw-bold border-0" value="${cat.category}" onchange="updateCategory(${cat.id}, this.value)" style="font-size: 1.3rem; width: 340px;">
+                </div>
+                <button class="btn btn-sm btn-outline-danger" onclick="deleteCategory(${cat.id})"><i class="fas fa-trash"></i></button>
+            </div>
+            <div class="items-container" data-catid="${cat.id}">`;
+
+        if(cat.items.length === 0) {
+            html += `<div class="p-3 text-center text-muted">Aucun plat dans cette catégorie (masquée côté client).</div>`;
+        } else {
+            cat.items.forEach((item) => {
+                html += `
+                <div class="item-row d-flex justify-content-between align-items-center p-2 border-bottom bg-white" data-id="${item.id}">
+                    <div class="d-flex align-items-center gap-2" style="flex: 1;">
+                        <!-- Poignée de glissement pour le plat -->
+                        <i class="fas fa-grip-lines text-muted drag-handle-item me-2" style="cursor: grab;"></i>
+                        <input type="text" class="form-control form-control-sm border-0 fw-semibold" value="${item.name}" onchange="updateItem(${item.id}, this.value, ${item.price})" style="max-width: 420px; font-size: 1.15rem;">
+                    </div>
+                    <div class="controls-group d-flex align-items-center gap-2">
+                        <input type="number" class="form-control form-control-sm text-center fw-bold" style="width: 95px; font-size: 1.05rem;" value="${item.price}" onchange="updateItem(${item.id}, null, this.value)">
+                        <span class="text-muted" style="font-size: 0.85rem;">DA</span>
+                        <button class="btn btn-sm ${item.available ? 'btn-success' : 'btn-secondary'}" onclick="toggle(${item.id})" style="width: 85px;">
+                            ${item.available ? 'En Stock' : 'Rupture'}
+                        </button>
+                        <button class="btn btn-sm btn-outline-danger" onclick="deleteItem(${item.id})"><i class="fas fa-trash"></i></button>
+                    </div>
                 </div>`;
-                if(cat.items.length === 0) {
-                    html += `<div class="p-3 text-center text-muted">Aucun plat.</div>`;
-                } else {
-                    cat.items.forEach(item => {
-                        html += `<div class="item-row">
-                            <div class="item-name">${item.name}</div>
-                            <div class="controls-group">
-                                <input type="number" class="form-control form-control-sm text-center" style="width: 80px;" value="${item.price}" onchange="updatePrice(${item.id}, this.value)">
-                                <button class="btn btn-sm ${item.available ? 'btn-success' : 'btn-secondary'}" onclick="toggle(${item.id})" style="width: 90px;">
-                                    ${item.available ? 'Stock' : 'Rupture'}
-                                </button>
-                                <button class="btn btn-sm btn-danger" onclick="deleteItem(${item.id})"><i class="fas fa-trash"></i></button>
-                            </div>
-                        </div>`;
-                    });
-                }
-                html += `</div>`;
-                container.innerHTML += html;
             });
         }
+        html += `</div></div>`;
+        container.innerHTML += html;
+    });
+
+    // Activer le glisser-déposer sur les catégories
+    new Sortable(container, {
+        handle: '.drag-handle-cat',
+        animation: 150
+    });
+
+    // Activer le glisser-déposer sur les plats à l'intérieur de chaque catégorie
+    document.querySelectorAll('.items-container').forEach(el => {
+        new Sortable(el, {
+            handle: '.drag-handle-item',
+            animation: 150
+        });
+    });
+}
+
         async function addCategory() {
             const name = document.getElementById('newCatName').value;
             if(!name) return;
@@ -353,35 +676,58 @@ HTML_ADMIN = """
             document.getElementById('newCatName').value = '';
             loadData();
         }
+
+        async function updateCategory(id, name) {
+            await fetch(`/api/categories/${id}`, {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name})});
+        }
+
+        async function moveCategory(id, direction) {
+            await fetch(`/api/categories/${id}/move/${direction}`, {method: 'POST'});
+            loadData();
+        }
+
         async function deleteCategory(id) {
-            if(confirm("Supprimer cette catégorie et ses plats ?")) {
+            if(confirm("Supprimer cette catégorie et tous ses plats ?")) {
                 await fetch(`/api/categories/${id}`, {method: 'DELETE'});
                 loadData();
             }
         }
+
         async function addItem() {
             const category_id = document.getElementById('newItemCat').value;
             const name = document.getElementById('newItemName').value;
             const price = document.getElementById('newItemPrice').value;
-            if(!category_id || !name) return alert("Remplissez le nom et la catégorie.");
+            if(!category_id || !name) return alert("Saisissez un nom et choisissez une catégorie.");
             await fetch('/api/items', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({category_id, name, price: parseFloat(price||0)})});
             document.getElementById('newItemName').value = '';
             document.getElementById('newItemPrice').value = '';
             loadData();
         }
+
+        async function updateItem(id, nameInput, priceInput) {
+            const item = fullMenu.flatMap(c => c.items).find(i => i.id === id);
+            const newName = nameInput !== null ? nameInput : item.name;
+            const newPrice = priceInput !== null ? parseFloat(priceInput) : item.price;
+            await fetch(`/api/items/${id}`, {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name: newName, price: newPrice})});
+        }
+
+        async function moveItem(id, direction) {
+            await fetch(`/api/items/${id}/move/${direction}`, {method: 'POST'});
+            loadData();
+        }
+
         async function deleteItem(id) {
             if(confirm("Supprimer ce plat ?")) {
                 await fetch(`/api/items/${id}`, {method: 'DELETE'});
                 loadData();
             }
         }
+
         async function toggle(id) {
             await fetch(`/api/toggle/${id}`, {method: 'POST'});
             loadData();
         }
-        async function updatePrice(id, price) {
-            await fetch(`/api/update-price/${id}`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({price: parseFloat(price)})});
-        }
+
         loadData();
     </script>
 </body>
