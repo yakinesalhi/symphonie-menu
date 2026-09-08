@@ -2,7 +2,8 @@ import sqlite3
 import os
 import qrcode
 import io
-from flask import Flask, request, jsonify, render_template_string, send_file
+from functools import wraps
+from flask import Flask, request, jsonify, render_template_string, send_file, Response
 
 app = Flask(__name__)
 
@@ -30,54 +31,33 @@ def init_db():
                 conn.execute("INSERT INTO categories (name) VALUES (?)", (c,))
             
             items_data = [
-                # 1. Les plats gastro volailles
                 (1, 'Escalope de poulet grillé'), (1, 'Escalope à la crème'), (1, 'Escalope panée'), (1, 'Escalope malinaise'), 
                 (1, 'Escalope à bormjaina'), (1, 'Kabab de volai'), (1, 'Cordent bleu'), (1, 'Cuisse mariné'), (1, 'Cuisse pané'),
-                
-                # 2. Viande Rouge
                 (2, 'Entrecôte du boeuf grillé'), (2, 'Entrecôte normande'), (2, 'Entrecôte chassure'), (2, 'Entrecôte bour de laisse'), 
                 (2, 'Entrecôte sauce motard'), (2, 'Mix grillade'), (2, 'Filet sauce barbecue'), (2, 'Filet'),
-                
-                # 3. Entre Chaude
                 (3, 'Crème de volai'), (3, 'Soupe de poisson'), (3, 'Soupe de légumes'), (3, 'Chorba frik'), (3, 'Herira'), 
                 (3, 'Bastila'), (3, 'Bourak viande'), (3, 'Bourak poulet'), (3, 'Brik annabi viande'), (3, 'Brik annabi Poulet'), 
                 (3, 'Bourek crevette'), (3, 'Omlette au choix'), (3, 'Omlette royale'), (3, 'Gratin poulet'), (3, 'Gratin viande'), 
                 (3, 'Gratin crevette'), (3, 'Gratin mixte'), (3, 'Gratin fruit de mer'),
-                
-                # 4. Les plats traditionnels
                 (4, "Chakhchoukha m'sila"), (4, 'Chakhchoukha bisekra'), (4, 'Chakhchoukha constantine (Trida)'), (4, 'Rechta'), 
                 (4, 'Zeviti'), (4, 'Couscous'), (4, 'Chtitha lsen'), (4, 'Chtitha Viande'), (4, 'Chtitha Moukh'), (4, 'Douwara'), 
                 (4, 'Tadjin zitoune'), (4, 'Jelbana'), (4, 'Mtouwem'), (4, 'Kebab'), (4, 'Aaja'), (4, 'Les abats'), 
                 (4, 'Poulet mfouwer'), (4, 'Viande mfouwer'), (4, 'Bouzelouf'), (4, 'Mechoui (poids)'), (4, 'Cuisse roté'),
-                
-                # 5. Nos Brochettes
                 (5, 'Steak hachée'), (5, 'Tranche de foi'), (5, 'Brochette de foi dinde royal'), (5, 'Brochette merguez'), 
                 (5, 'Brochette de viande royal'), (5, 'Brochette de foie de veau'), (5, 'Brochette melfouf'), (5, 'Brochette kabab'), 
                 (5, 'Entrecôte de boeuf'), (5, "Cote d'agneau"), (5, 'Melange foie + dinde + viande'),
-                
-                # 6. Pasta
                 (6, 'Spaghetti bolognaise'), (6, 'Spaghetti napolitain'), (6, 'Spaghetti fruits de mer'), (6, 'Spaghetti quatre fromages'), 
                 (6, 'Tagliatelle poulet champignons'), (6, 'Tagliatelle quatre fromages'), (6, 'Tagliatelle saumon'), 
                 (6, 'Tagliatelle camembert'), (6, 'Les linguine aux crevette'),
-                
-                # 7. Fast food
                 (7, 'Tacos poulet'), (7, 'Tacos viande'), (7, 'Tacos crispy'), (7, 'Tacos Mixte'), (7, 'Burger poulet'), 
                 (7, 'Burger viande'), (7, 'Burger mixte'), (7, 'Burger crispy'), (7, 'Menu enfant au choix'),
-                
-                # 8. Nos poissons
                 (8, 'Dorade'), (8, 'Saumon'), (8, 'Calamar'), (8, 'Loup de mer'), (8, 'Sipia en sauce'), (8, 'Espadon'), 
                 (8, 'Crevette grillé'), (8, 'Crevette en sauce'), (8, 'Sardine'), (8, 'Rouget'), (8, 'Pageot'), (8, 'Marbre'), 
                 (8, 'Brouché'), (8, 'Pagre'), (8, 'Mix poisson'),
-                
-                # 9. Boissons fraiches
                 (9, 'Eau GM'), (9, 'Eau PM'), (9, 'Coca 1L'), (9, 'Hamoud 1L'), (9, 'Hamoud Canette'), (9, 'Coca cola canette'), 
                 (9, 'Eau non gazeuse'), (9, "Jus d'orange nature"), (9, 'Jus de citrone nature'), (9, 'Mujito'), (9, 'Jus cocktail'), 
                 (9, 'Jus Symphonie'), (9, 'Milkshake'), (9, 'Café glacé'), (9, 'Jus de banane'), (9, 'Jus de fraise'),
-                
-                # 10. Boissons Chaudes
                 (10, 'Café nesspresso'), (10, 'Thé maison Timimoun'), (10, 'Thé lipton au choix'), (10, 'Tisane maison au choix'),
-                
-                # 11. Dessert
                 (11, 'Crépe simple'), (11, 'Crépe au fruit'), (11, 'Crépe surprise'), (11, 'Crépe banane'), (11, 'Crépe maison'), 
                 (11, 'Gaufre simple'), (11, 'Gaufre au fruit'), (11, 'Gaufre surprise'), (11, 'Gaufre banane'), (11, 'Fondant chocolat'), 
                 (11, 'Mousse chocolat'), (11, 'Crème broulée'), (11, 'Crème caramel'), (11, 'Crème tiramisu'), (11, 'Salade de fruits'), 
@@ -85,7 +65,6 @@ def init_db():
             ]
             
             for cat_id, name in items_data:
-                # Ajout avec un prix par defaut de 0
                 conn.execute("INSERT INTO menu_items (category_id, name, price) VALUES (?, ?, 0)", (cat_id, name))
             
             conn.commit()
@@ -95,6 +74,26 @@ def init_db():
 
 init_db()
 
+# --- SÉCURITÉ ---
+def check_auth(username, password):
+    return username == 'admin' and password == 'symphonie2026'
+
+def authenticate():
+    return Response(
+        'Accès refusé. Authentification requise.', 401,
+        {'WWW-Authenticate': 'Basic realm="Espace Gerant Symphonie"'}
+    )
+
+def requires_auth(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        auth = request.authorization
+        if not auth or not check_auth(auth.username, auth.password):
+            return authenticate()
+        return f(*args, **kwargs)
+    return decorated
+
+# --- ROUTES API ---
 @app.route('/api/menu')
 def get_menu():
     try:
@@ -169,18 +168,7 @@ def update_price(id):
     conn.close()
     return jsonify({'success': True})
 
-@app.route('/admin/download-qrcode')
-def download_qrcode():
-    base_url = request.host_url.rstrip('/')
-    qr = qrcode.QRCode(version=1, box_size=10, border=5)
-    qr.add_data(base_url)
-    qr.make(fit=True)
-    img = qr.make_image(fill_color="black", back_color="white")
-    buffer = io.BytesIO()
-    img.save(buffer, format="PNG")
-    buffer.seek(0)
-    return send_file(buffer, mimetype='image/png', as_attachment=True, download_name='qrcode_symphonie.png')
-
+# --- VUES PAGES ET QR CODE ---
 HTML_CLIENT = """
 <!DOCTYPE html>
 <html lang="fr">
@@ -405,8 +393,22 @@ def client_page():
     return render_template_string(HTML_CLIENT)
 
 @app.route('/admin')
+@requires_auth
 def admin_page():
     return render_template_string(HTML_ADMIN)
+
+@app.route('/admin/download-qrcode')
+@requires_auth
+def download_qrcode():
+    base_url = request.host_url.rstrip('/')
+    qr = qrcode.QRCode(version=1, box_size=10, border=5)
+    qr.add_data(base_url)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white")
+    buffer = io.BytesIO()
+    img.save(buffer, format="PNG")
+    buffer.seek(0)
+    return send_file(buffer, mimetype='image/png', as_attachment=True, download_name='qrcode_symphonie.png')
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5002, debug=True)
