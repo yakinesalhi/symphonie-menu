@@ -105,8 +105,17 @@ def init_db():
 init_db()
 
 # --- SÉCURITÉ ADMIN ---
+ADMIN_USERNAME = os.environ.get('ADMIN_USERNAME')
+ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD')
+
 def check_auth(username, password):
-    return username == 'admin' and password == 'symphonie2026'
+    return username == ADMIN_USERNAME and password == ADMIN_PASSWORD
+
+def check_auth(username, password):
+    # Si les variables d'environnement sont absentes sur le serveur, bloque tout accès
+    if not ADMIN_USERNAME or not ADMIN_PASSWORD:
+        return False
+    return username == ADMIN_USERNAME and password == ADMIN_PASSWORD
 
 def authenticate():
     return Response(
@@ -748,4 +757,5 @@ def download_qrcode():
     return send_file(buffer, mimetype='image/png', as_attachment=True, download_name='qrcode_symphonie.png')
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5002, debug=True)
+    port = int(os.environ.get('PORT', 5002))
+    app.run(host='0.0.0.0', port=port, debug=False)
