@@ -10,3 +10,5 @@ gunicorn
 Flask
 qrcode
 Pillow
+psycopg2-binary
+python-dotenv

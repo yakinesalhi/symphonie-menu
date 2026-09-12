@@ -1,106 +1,168 @@
-import sqlite3
 import os
-import qrcode
 import io
 from functools import wraps
-from flask import Flask, request, jsonify, render_template_string, send_file, Response
+from dotenv import load_dotenv  # type: ignore
+import psycopg2  # type: ignore
+from psycopg2.extras import RealDictCursor  # type: ignore
+import qrcode  # type: ignore
+from flask import Flask, request, jsonify, render_template_string, send_file, Response, g
+
+load_dotenv()
 
 app = Flask(__name__)
 
-DB_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "symphonie_pro.db")
+# --- CACHE GLOBAL EN MÉMOIRE ---
+MENU_CACHE = None
 
 def get_db():
-    conn = sqlite3.connect(DB_FILE)
-    conn.row_factory = sqlite3.Row
-    return conn
+    if 'db' not in g:
+        db_url = os.environ.get('DATABASE_URL')
+        if db_url and db_url.startswith("postgres://"):
+            db_url = db_url.replace("postgres://", "postgresql://", 1)
+        g.db = psycopg2.connect(db_url, cursor_factory=RealDictCursor)
+    return g.db
+
+@app.teardown_appcontext
+def close_db(exception):
+    db = g.pop('db', None)
+    if db is not None:
+        db.close()
+
+def fetch_menu_from_db():
+    """Va chercher le menu complet en une seule requête JOIN"""
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT c.id AS cat_id, c.name AS cat_name, 
+               m.id AS item_id, m.name AS item_name, m.price, m.available
+        FROM categories c
+        LEFT JOIN menu_items m ON c.id = m.category_id
+        ORDER BY c.position ASC, c.id ASC, m.position ASC, m.id ASC;
+    """)
+    rows = cur.fetchall()
+    cur.close()
+
+    menu_dict = {}
+    for r in rows:
+        cat_id = r['cat_id']
+        if cat_id not in menu_dict:
+            menu_dict[cat_id] = {'id': cat_id, 'category': r['cat_name'], 'items': []}
+        if r['item_id'] is not None:
+            menu_dict[cat_id]['items'].append({
+                'id': r['item_id'],
+                'name': r['item_name'],
+                'price': float(r['price']) if r['price'] is not None else 0,
+                'available': r['available']
+            })
+    return list(menu_dict.values())
+
+def invalidate_menu_cache():
+    """Efface le cache pour forcer un rafraîchissement au prochain chargement"""
+    global MENU_CACHE
+    MENU_CACHE = None
 
 def init_db():
-    try:
-        conn = get_db()
-        conn.execute('CREATE TABLE IF NOT EXISTS categories (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL, position INTEGER DEFAULT 0)')
-        conn.execute('CREATE TABLE IF NOT EXISTS menu_items (id INTEGER PRIMARY KEY AUTOINCREMENT, category_id INTEGER, name TEXT NOT NULL, price REAL DEFAULT 0, available INTEGER DEFAULT 1, position INTEGER DEFAULT 0)')
-        
+    with app.app_context():
         try:
-            conn.execute('ALTER TABLE categories ADD COLUMN position INTEGER DEFAULT 0')
-        except:
-            pass
-        try:
-            conn.execute('ALTER TABLE menu_items ADD COLUMN position INTEGER DEFAULT 0')
-        except:
-            pass
+            conn = get_db()
+            cur = conn.cursor()
 
-        if conn.execute("SELECT COUNT(*) FROM categories").fetchone()[0] == 0:
-            cats = [
-                "Les Plats Gastro Volailles", "Viande Rouge", "Entrées Chaudes", 
-                "Les Plats Traditionnels", "Nos Brochettes", "Pasta", 
-                "Fast Food", "Nos Poissons", "Boissons Fraîches", 
-                "Boissons Chaudes", "Desserts"
-            ]
-            for idx, c in enumerate(cats):
-                conn.execute("INSERT INTO categories (name, position) VALUES (?, ?)", (c, idx))
+            # Création des tables avec syntaxe PostgreSQL (SERIAL)
+            cur.execute('''
+                CREATE TABLE IF NOT EXISTS categories (
+                    id SERIAL PRIMARY KEY,
+                    name TEXT UNIQUE NOT NULL,
+                    position INTEGER DEFAULT 0
+                );
+            ''')
+
+            cur.execute('''
+                CREATE TABLE IF NOT EXISTS menu_items (
+                    id SERIAL PRIMARY KEY,
+                    category_id INTEGER REFERENCES categories(id) ON DELETE CASCADE,
+                    name TEXT NOT NULL,
+                    price NUMERIC DEFAULT 0,
+                    available INTEGER DEFAULT 1,
+                    position INTEGER DEFAULT 0
+                );
+            ''')
+
+            # Vérification si la base est vide
+            cur.execute("SELECT COUNT(*) AS cnt FROM categories;")
+            row = cur.fetchone()
+            if row and row['cnt'] == 0:
+                cats = [
+                    "Les Plats Gastro Volailles", "Viande Rouge", "Entrées Chaudes", 
+                    "Les Plats Traditionnels", "Nos Brochettes", "Pasta", 
+                    "Fast Food", "Nos Poissons", "Boissons Fraîches", 
+                    "Boissons Chaudes", "Desserts"
+                ]
+                for idx, c in enumerate(cats):
+                    cur.execute("INSERT INTO categories (name, position) VALUES (%s, %s);", (c, idx))
+                
+                items_data = [
+                    # 1. Les Plats Gastro Volailles
+                    (1, 'Escalope de poulet grillée'), (1, 'Escalope à la crème'), (1, 'Escalope panée'), (1, 'Escalope milanaise'), 
+                    (1, 'Escalope borjaina'), (1, 'Kebab de volaille'), (1, 'Cordon bleu'), (1, 'Cuisse marinée'), (1, 'Cuisse panée'),
+                    
+                    # 2. Viande Rouge
+                    (2, 'Entrecôte de bœuf grillée'), (2, 'Entrecôte normande'), (2, 'Entrecôte chasseur'), (2, 'Entrecôte bordelaise'), 
+                    (2, 'Entrecôte sauce moutarde'), (2, 'Mix grillades'), (2, 'Filet sauce barbecue'), (2, 'Filet de bœuf'),
+                    
+                    # 3. Entrées Chaudes
+                    (3, 'Velouté de volaille'), (3, 'Soupe de poisson'), (3, 'Soupe de légumes'), (3, 'Chorba Frik'), (3, 'Hrira'), 
+                    (3, 'Pastilla'), (3, 'Bourek à la viande'), (3, 'Bourek au poulet'), (3, 'Brik Annabi à la viande'), (3, 'Brik Annabi au poulet'), 
+                    (3, 'Bourek aux crevettes'), (3, 'Omelette au choix'), (3, 'Omelette royale'), (3, 'Gratin de poulet'), (3, 'Gratin de viande'), 
+                    (3, 'Gratin de crevettes'), (3, 'Gratin mixte'), (3, 'Gratin de fruits de mer'),
+                    
+                    # 4. Les Plats Traditionnels
+                    (4, "Chakhchoukha de M'Sila"), (4, 'Chakhchoukha de Biskra'), (4, 'Trida de Constantine'), (4, 'Rechta'), 
+                    (4, 'Zviti'), (4, 'Couscous Traditionnel'), (4, 'Chtitha Lsan (Langue)'), (4, 'Chtitha Viande'), (4, 'Chtitha Moukh (Cervelle)'), (4, 'Douwara'), 
+                    (4, 'Tajine Zitoune'), (4, 'Jelbana'), (4, 'Mtouwem'), (4, 'Kebab Traditionnel'), (4, 'Ojja / Aaja'), (4, 'Les Abats'), 
+                    (4, 'Poulet Mfouwer (Vapeur)'), (4, 'Viande Mfouwer (Vapeur)'), (4, 'Bouzelouf'), (4, 'Méchoui (au poids)'), (4, 'Cuisse rôtie'),
+                    
+                    # 5. Nos Brochettes
+                    (5, 'Steak haché'), (5, 'Tranche de foie'), (5, 'Brochette de foie de dinde royale'), (5, 'Brochette merguez'), 
+                    (5, 'Brochette de viande royale'), (5, 'Brochette de foie de veau'), (5, 'Brochette Melfouf'), (5, 'Brochette Kebab'), 
+                    (5, "Brochette d'entrecôte de bœuf"), (5, "Côte d'agneau"), (5, 'Mélange Foie, Dinde & Viande'),
+                    
+                    # 6. Pasta
+                    (6, 'Spaghetti Bolognaise'), (6, 'Spaghetti Napolitaine'), (6, 'Spaghetti aux Fruits de Mer'), (6, 'Spaghetti Quatre Fromages'), 
+                    (6, 'Tagliatelles Poulet & Champignons'), (6, 'Tagliatelles Quatre Fromages'), (6, 'Tagliatelles au Saumon'), 
+                    (6, 'Tagliatelles au Camembert'), (6, 'Linguine aux Crevettes'),
+                    
+                    # 7. Fast Food
+                    (7, 'Tacos Poulet'), (7, 'Tacos Viande Hachée'), (7, 'Tacos Crispy'), (7, 'Tacos Mixte'), (7, 'Burger Poulet'), 
+                    (7, 'Burger Viande'), (7, 'Burger Mixte'), (7, 'Burger Crispy'), (7, 'Menu Enfant au Choix'),
+                    
+                    # 8. Nos Poissons
+                    (8, 'Dorade Grillée'), (8, 'Pavé de Saumon'), (8, 'Calamars Grillés / Frits'), (8, 'Loup de Mer'), (8, 'Seiche en Sauce'), (8, 'Steak d\'Espadon'), 
+                    (8, 'Crevettes Grillées'), (8, 'Crevettes Sautées en Sauce'), (8, 'Sardines Grillées'), (8, 'Rouget Frit / Grillé'), (8, 'Pageot'), (8, 'Marbré'), 
+                    (8, 'Brochet'), (8, 'Pagre'), (8, 'Plateau Mix Poissons'),
+                    
+                    # 9. Boissons Fraîches
+                    (9, 'Eau Minérale (Grand Modèle)'), (9, 'Eau Minérale (Petit Modèle)'), (9, 'Coca-Cola 1L'), (9, 'Hamoud Boualem 1L'), (9, 'Hamoud Canette'), (9, 'Coca-Cola Canette'), 
+                    (9, 'Eau de Source'), (9, "Jus d'Orange Naturel"), (9, 'Citronnade Naturelle'), (9, 'Mojito Maison (Sans alcool)'), (9, 'Cocktail de Fruits Frais'), 
+                    (9, 'Jus Signature Symphonie'), (9, 'Milkshake Gourmand'), (9, 'Café Glacé'), (9, 'Jus de Banane Frais'), (9, 'Jus de Fraise Frais'),
+                    
+                    # 10. Boissons Chaudes
+                    (10, 'Café Nespresso'), (10, 'Thé Traditionnel de Timimoun'), (10, 'Thé Lipton au Choix'), (10, 'Tisane Infusion Maison'),
+                    
+                    # 11. Desserts
+                    (11, 'Crêpe Simple (Sucre/Beurre)'), (11, 'Crêpe aux Fruits'), (11, 'Crêpe Surprise Symphonie'), (11, 'Crêpe Banane Chocolat'), (11, 'Crêpe Spéciale Maison'), 
+                    (11, 'Gaufre Simple'), (11, 'Gaufre aux Fruits'), (11, 'Gaufre Surprise'), (11, 'Gaufre Banane Chocolat'), (11, 'Fondant au Chocolat Coeur Coulant'), 
+                    (11, 'Mousse au Chocolat Noir'), (11, 'Crème Brûlée à la Vanille'), (11, 'Crème Caramel Onctueuse'), (11, 'Tiramisu Italien Traditionnel'), (11, 'Salade de Fruits Frais'), 
+                    (11, 'Assiette de Fruits de Saison')
+                ]
+                
+                for idx, (cat_id, name) in enumerate(items_data):
+                    cur.execute("INSERT INTO menu_items (category_id, name, price, position) VALUES (%s, %s, 0, %s);", (cat_id, name, idx))
+                
+                conn.commit()
             
-            items_data = [
-                # 1. Les Plats Gastro Volailles
-                (1, 'Escalope de poulet grillée'), (1, 'Escalope à la crème'), (1, 'Escalope panée'), (1, 'Escalope milanaise'), 
-                (1, 'Escalope borjaina'), (1, 'Kebab de volaille'), (1, 'Cordon bleu'), (1, 'Cuisse marinée'), (1, 'Cuisse panée'),
-                
-                # 2. Viande Rouge
-                (2, 'Entrecôte de bœuf grillée'), (2, 'Entrecôte normande'), (2, 'Entrecôte chasseur'), (2, 'Entrecôte bordelaise'), 
-                (2, 'Entrecôte sauce moutarde'), (2, 'Mix grillades'), (2, 'Filet sauce barbecue'), (2, 'Filet de bœuf'),
-                
-                # 3. Entrées Chaudes
-                (3, 'Velouté de volaille'), (3, 'Soupe de poisson'), (3, 'Soupe de légumes'), (3, 'Chorba Frik'), (3, 'Hrira'), 
-                (3, 'Pastilla'), (3, 'Bourek à la viande'), (3, 'Bourek au poulet'), (3, 'Brik Annabi à la viande'), (3, 'Brik Annabi au poulet'), 
-                (3, 'Bourek aux crevettes'), (3, 'Omelette au choix'), (3, 'Omelette royale'), (3, 'Gratin de poulet'), (3, 'Gratin de viande'), 
-                (3, 'Gratin de crevettes'), (3, 'Gratin mixte'), (3, 'Gratin de fruits de mer'),
-                
-                # 4. Les Plats Traditionnels
-                (4, "Chakhchoukha de M'Sila"), (4, 'Chakhchoukha de Biskra'), (4, 'Trida de Constantine'), (4, 'Rechta'), 
-                (4, 'Zviti'), (4, 'Couscous Traditionnel'), (4, 'Chtitha Lsan (Langue)'), (4, 'Chtitha Viande'), (4, 'Chtitha Moukh (Cervelle)'), (4, 'Douwara'), 
-                (4, 'Tajine Zitoune'), (4, 'Jelbana'), (4, 'Mtouwem'), (4, 'Kebab Traditionnel'), (4, 'Ojja / Aaja'), (4, 'Les Abats'), 
-                (4, 'Poulet Mfouwer (Vapeur)'), (4, 'Viande Mfouwer (Vapeur)'), (4, 'Bouzelouf'), (4, 'Méchoui (au poids)'), (4, 'Cuisse rôtie'),
-                
-                # 5. Nos Brochettes
-                (5, 'Steak haché'), (5, 'Tranche de foie'), (5, 'Brochette de foie de dinde royale'), (5, 'Brochette merguez'), 
-                (5, 'Brochette de viande royale'), (5, 'Brochette de foie de veau'), (5, 'Brochette Melfouf'), (5, 'Brochette Kebab'), 
-                (5, "Brochette d'entrecôte de bœuf"), (5, "Côte d'agneau"), (5, 'Mélange Foie, Dinde & Viande'),
-                
-                # 6. Pasta
-                (6, 'Spaghetti Bolognaise'), (6, 'Spaghetti Napolitaine'), (6, 'Spaghetti aux Fruits de Mer'), (6, 'Spaghetti Quatre Fromages'), 
-                (6, 'Tagliatelles Poulet & Champignons'), (6, 'Tagliatelles Quatre Fromages'), (6, 'Tagliatelles au Saumon'), 
-                (6, 'Tagliatelles au Camembert'), (6, 'Linguine aux Crevettes'),
-                
-                # 7. Fast Food
-                (7, 'Tacos Poulet'), (7, 'Tacos Viande Hachée'), (7, 'Tacos Crispy'), (7, 'Tacos Mixte'), (7, 'Burger Poulet'), 
-                (7, 'Burger Viande'), (7, 'Burger Mixte'), (7, 'Burger Crispy'), (7, 'Menu Enfant au Choix'),
-                
-                # 8. Nos Poissons
-                (8, 'Dorade Grillée'), (8, 'Pavé de Saumon'), (8, 'Calamars Grillés / Frits'), (8, 'Loup de Mer'), (8, 'Seiche en Sauce'), (8, 'Steak d\'Espadon'), 
-                (8, 'Crevettes Grillées'), (8, 'Crevettes Sautées en Sauce'), (8, 'Sardines Grillées'), (8, 'Rouget Frit / Grillé'), (8, 'Pageot'), (8, 'Marbré'), 
-                (8, 'Brochet'), (8, 'Pagre'), (8, 'Plateau Mix Poissons'),
-                
-                # 9. Boissons Fraîches
-                (9, 'Eau Minérale (Grand Modèle)'), (9, 'Eau Minérale (Petit Modèle)'), (9, 'Coca-Cola 1L'), (9, 'Hamoud Boualem 1L'), (9, 'Hamoud Canette'), (9, 'Coca-Cola Canette'), 
-                (9, 'Eau de Source'), (9, "Jus d'Orange Naturel"), (9, 'Citronnade Naturelle'), (9, 'Mojito Maison (Sans alcool)'), (9, 'Cocktail de Fruits Frais'), 
-                (9, 'Jus Signature Symphonie'), (9, 'Milkshake Gourmand'), (9, 'Café Glacé'), (9, 'Jus de Banane Frais'), (9, 'Jus de Fraise Frais'),
-                
-                # 10. Boissons Chaudes
-                (10, 'Café Nespresso'), (10, 'Thé Traditionnel de Timimoun'), (10, 'Thé Lipton au Choix'), (10, 'Tisane Infusion Maison'),
-                
-                # 11. Desserts
-                (11, 'Crêpe Simple (Sucre/Beurre)'), (11, 'Crêpe aux Fruits'), (11, 'Crêpe Surprise Symphonie'), (11, 'Crêpe Banane Chocolat'), (11, 'Crêpe Spéciale Maison'), 
-                (11, 'Gaufre Simple'), (11, 'Gaufre aux Fruits'), (11, 'Gaufre Surprise'), (11, 'Gaufre Banane Chocolat'), (11, 'Fondant au Chocolat Coeur Coulant'), 
-                (11, 'Mousse au Chocolat Noir'), (11, 'Crème Brûlée à la Vanille'), (11, 'Crème Caramel Onctueuse'), (11, 'Tiramisu Italien Traditionnel'), (11, 'Salade de Fruits Frais'), 
-                (11, 'Assiette de Fruits de Saison')
-            ]
-            
-            for idx, (cat_id, name) in enumerate(items_data):
-                conn.execute("INSERT INTO menu_items (category_id, name, price, position) VALUES (?, ?, 0, ?)", (cat_id, name, idx))
-            
-            conn.commit()
-        conn.close()
-    except Exception as e:
-        print(f"Erreur DB init: {e}")
+            cur.close()
+        except Exception as e:
+            print(f"Erreur DB init: {e}")
 
 init_db()
 
@@ -109,10 +171,6 @@ ADMIN_USERNAME = os.environ.get('ADMIN_USERNAME')
 ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD')
 
 def check_auth(username, password):
-    return username == ADMIN_USERNAME and password == ADMIN_PASSWORD
-
-def check_auth(username, password):
-    # Si les variables d'environnement sont absentes sur le serveur, bloque tout accès
     if not ADMIN_USERNAME or not ADMIN_PASSWORD:
         return False
     return username == ADMIN_USERNAME and password == ADMIN_PASSWORD
@@ -135,20 +193,14 @@ def requires_auth(f):
 # --- API ROUTES ---
 @app.route('/api/menu')
 def get_menu():
+    global MENU_CACHE
+    if MENU_CACHE is not None:
+        return jsonify(MENU_CACHE)
     try:
-        conn = get_db()
-        cats = conn.execute("SELECT * FROM categories ORDER BY position ASC, id ASC").fetchall()
-        result = []
-        for cat in cats:
-            items = conn.execute("SELECT * FROM menu_items WHERE category_id = ? ORDER BY position ASC, id ASC", (cat['id'],)).fetchall()
-            result.append({
-                'id': cat['id'],
-                'category': cat['name'],
-                'items': [dict(i) for i in items]
-            })
-        conn.close()
-        return jsonify(result)
+        MENU_CACHE = fetch_menu_from_db()
+        return jsonify(MENU_CACHE)
     except Exception as e:
+        print(f"Erreur get_menu: {e}")
         return jsonify([])
 
 @app.route('/api/categories', methods=['POST'])
@@ -156,13 +208,19 @@ def get_menu():
 def add_category():
     name = request.json.get('name')
     conn = get_db()
+    cur = conn.cursor()
     try:
-        max_pos = conn.execute("SELECT MAX(position) FROM categories").fetchone()[0] or 0
-        conn.execute("INSERT INTO categories (name, position) VALUES (?, ?)", (name, max_pos + 1))
+        cur.execute("SELECT MAX(position) AS max_pos FROM categories;")
+        row = cur.fetchone()
+        max_pos = row['max_pos'] if row and row['max_pos'] is not None else 0
+        cur.execute("INSERT INTO categories (name, position) VALUES (%s, %s);", (name, max_pos + 1))
         conn.commit()
-    except:
-        pass
-    conn.close()
+        invalidate_menu_cache()
+    except Exception as e:
+        print(f"Erreur add_category: {e}")
+        conn.rollback()
+    finally:
+        cur.close()
     return jsonify({'success': True})
 
 @app.route('/api/categories/<int:id>', methods=['PUT'])
@@ -170,36 +228,42 @@ def add_category():
 def update_category(id):
     name = request.json.get('name')
     conn = get_db()
-    conn.execute("UPDATE categories SET name = ? WHERE id = ?", (name, id))
+    cur = conn.cursor()
+    cur.execute("UPDATE categories SET name = %s WHERE id = %s;", (name, id))
     conn.commit()
-    conn.close()
+    cur.close()
+    invalidate_menu_cache()
     return jsonify({'success': True})
 
 @app.route('/api/categories/<int:id>', methods=['DELETE'])
 @requires_auth
 def delete_category(id):
     conn = get_db()
-    conn.execute("DELETE FROM menu_items WHERE category_id = ?", (id,))
-    conn.execute("DELETE FROM categories WHERE id = ?", (id,))
+    cur = conn.cursor()
+    cur.execute("DELETE FROM menu_items WHERE category_id = %s;", (id,))
+    cur.execute("DELETE FROM categories WHERE id = %s;", (id,))
     conn.commit()
-    conn.close()
+    cur.close()
+    invalidate_menu_cache()
     return jsonify({'success': True})
 
 @app.route('/api/categories/<int:id>/move/<string:direction>', methods=['POST'])
 @requires_auth
 def move_category(id, direction):
     conn = get_db()
-    cats = conn.execute("SELECT id, position FROM categories ORDER BY position ASC, id ASC").fetchall()
-    cats = [dict(c) for c in cats]
+    cur = conn.cursor()
+    cur.execute("SELECT id, position FROM categories ORDER BY position ASC, id ASC;")
+    cats = [dict(c) for c in cur.fetchall()]
     idx = next((i for i, c in enumerate(cats) if c['id'] == id), None)
     
     if idx is not None:
         target_idx = idx - 1 if direction == 'up' else idx + 1
         if 0 <= target_idx < len(cats):
-            conn.execute("UPDATE categories SET position = ? WHERE id = ?", (cats[target_idx]['position'], cats[idx]['id']))
-            conn.execute("UPDATE categories SET position = ? WHERE id = ?", (cats[idx]['position'], cats[target_idx]['id']))
+            cur.execute("UPDATE categories SET position = %s WHERE id = %s;", (cats[target_idx]['position'], cats[idx]['id']))
+            cur.execute("UPDATE categories SET position = %s WHERE id = %s;", (cats[idx]['position'], cats[target_idx]['id']))
             conn.commit()
-    conn.close()
+            invalidate_menu_cache()
+    cur.close()
     return jsonify({'success': True})
 
 @app.route('/api/items', methods=['POST'])
@@ -207,11 +271,15 @@ def move_category(id, direction):
 def add_item():
     data = request.json
     conn = get_db()
-    max_pos = conn.execute("SELECT MAX(position) FROM menu_items WHERE category_id = ?", (data['category_id'],)).fetchone()[0] or 0
-    conn.execute("INSERT INTO menu_items (category_id, name, price, position) VALUES (?, ?, ?, ?)", 
-                 (data['category_id'], data['name'], data['price'], max_pos + 1))
+    cur = conn.cursor()
+    cur.execute("SELECT MAX(position) AS max_pos FROM menu_items WHERE category_id = %s;", (data['category_id'],))
+    row = cur.fetchone()
+    max_pos = row['max_pos'] if row and row['max_pos'] is not None else 0
+    cur.execute("INSERT INTO menu_items (category_id, name, price, position) VALUES (%s, %s, %s, %s);", 
+                (data['category_id'], data['name'], data['price'], max_pos + 1))
     conn.commit()
-    conn.close()
+    cur.close()
+    invalidate_menu_cache()
     return jsonify({'success': True})
 
 @app.route('/api/items/<int:id>', methods=['PUT'])
@@ -219,46 +287,55 @@ def add_item():
 def update_item(id):
     data = request.json
     conn = get_db()
-    conn.execute("UPDATE menu_items SET name = ?, price = ? WHERE id = ?", (data['name'], data['price'], id))
+    cur = conn.cursor()
+    cur.execute("UPDATE menu_items SET name = %s, price = %s WHERE id = %s;", (data['name'], data['price'], id))
     conn.commit()
-    conn.close()
+    cur.close()
+    invalidate_menu_cache()
     return jsonify({'success': True})
 
 @app.route('/api/items/<int:id>', methods=['DELETE'])
 @requires_auth
 def delete_item(id):
     conn = get_db()
-    conn.execute("DELETE FROM menu_items WHERE id = ?", (id,))
+    cur = conn.cursor()
+    cur.execute("DELETE FROM menu_items WHERE id = %s;", (id,))
     conn.commit()
-    conn.close()
+    cur.close()
+    invalidate_menu_cache()
     return jsonify({'success': True})
 
 @app.route('/api/items/<int:id>/move/<string:direction>', methods=['POST'])
 @requires_auth
 def move_item(id, direction):
     conn = get_db()
-    item = conn.execute("SELECT category_id FROM menu_items WHERE id = ?", (id,)).fetchone()
+    cur = conn.cursor()
+    cur.execute("SELECT category_id FROM menu_items WHERE id = %s;", (id,))
+    item = cur.fetchone()
     if item:
         cat_id = item['category_id']
-        items = conn.execute("SELECT id, position FROM menu_items WHERE category_id = ? ORDER BY position ASC, id ASC", (cat_id,)).fetchall()
-        items = [dict(i) for i in items]
+        cur.execute("SELECT id, position FROM menu_items WHERE category_id = %s ORDER BY position ASC, id ASC;", (cat_id,))
+        items = [dict(i) for i in cur.fetchall()]
         idx = next((i for i, elem in enumerate(items) if elem['id'] == id), None)
         if idx is not None:
             target_idx = idx - 1 if direction == 'up' else idx + 1
             if 0 <= target_idx < len(items):
-                conn.execute("UPDATE menu_items SET position = ? WHERE id = ?", (items[target_idx]['position'], items[idx]['id']))
-                conn.execute("UPDATE menu_items SET position = ? WHERE id = ?", (items[idx]['position'], items[target_idx]['id']))
+                cur.execute("UPDATE menu_items SET position = %s WHERE id = %s;", (items[target_idx]['position'], items[idx]['id']))
+                cur.execute("UPDATE menu_items SET position = %s WHERE id = %s;", (items[idx]['position'], items[target_idx]['id']))
                 conn.commit()
-    conn.close()
+                invalidate_menu_cache()
+    cur.close()
     return jsonify({'success': True})
 
 @app.route('/api/toggle/<int:id>', methods=['POST'])
 @requires_auth
 def toggle_item(id):
     conn = get_db()
-    conn.execute("UPDATE menu_items SET available = CASE WHEN available = 1 THEN 0 ELSE 1 END WHERE id = ?", (id,))
+    cur = conn.cursor()
+    cur.execute("UPDATE menu_items SET available = CASE WHEN available = 1 THEN 0 ELSE 1 END WHERE id = %s;", (id,))
     conn.commit()
-    conn.close()
+    cur.close()
+    invalidate_menu_cache()
     return jsonify({'success': True})
 
 # --- TEMPLATES UI ---
@@ -338,22 +415,6 @@ HTML_CLIENT = """
             padding: 0 10px;
             font-size: 0.75rem;
         }
-        .search-box { 
-            background: rgba(20, 20, 20, 0.8); 
-            border: 1px solid var(--border-gold); 
-            color: #ffffff; 
-            border-radius: 30px; 
-            padding: 12px 25px; 
-            backdrop-filter: blur(10px);
-            font-size: 0.95rem;
-            transition: all 0.3s ease;
-        }
-        .search-box:focus { 
-            background: rgba(30, 30, 30, 0.95); 
-            color: #ffffff; 
-            border-color: var(--gold-primary); 
-            box-shadow: 0 0 15px rgba(212, 175, 55, 0.3); 
-        }
         .category-nav { scrollbar-width: none; }
         .category-nav::-webkit-scrollbar { display: none; }
         .category-badge { 
@@ -430,12 +491,13 @@ HTML_CLIENT = """
             letter-spacing: 0.3px;
         }
         .item-price { 
-            font-family: 'Cormorant Garamond', serif;
-            font-size: 1.35rem; 
-            color: var(--gold-primary); 
-            font-weight: 700; 
-            white-space: nowrap;
-            margin-left: 15px;
+        font-family: 'Plus Jakarta Sans', sans-serif;
+        font-size: 1.2rem; 
+        color: var(--gold-primary); 
+        font-weight: 700; 
+        white-space: nowrap;
+        margin-left: 15px;
+        font-variant-numeric: tabular-nums; /* Aligne parfaitement la largeur des chiffres */
         }
         .out-of-stock { opacity: 0.45; filter: grayscale(80%); }
         .badge-rupture { 
@@ -555,23 +617,21 @@ HTML_ADMIN = """
         .item-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 15px; border-bottom: 1px solid #f0f0f0; background: white;}
         .item-row:hover { background: #fdfdfd; }
         .controls-group { display: flex; align-items: center; gap: 6px; }
-        .btn-move { padding: 2px 8px; font-size: 0.8rem; }
     </style>
 </head>
 <body>
     <div class="admin-header">
-    <div class="container d-flex justify-content-between align-items-center" style="max-width: 950px;">
-        <div>
-            <h3 class="m-0 text-warning fw-bold"><i class="fas fa-sliders"></i> Espace Gérant - Symphonie</h3>
-        </div>
-        <div class="d-flex gap-2">
-            <!-- Bouton 1 : Téléchargement direct du QR Code -->
-            <a href="/admin/download-qrcode" class="btn btn-warning btn-sm fw-bold d-flex align-items-center gap-2 px-3">
-                <i class="fas fa-qrcode"></i> Télécharger QR Code
-            </a>
+        <div class="container d-flex justify-content-between align-items-center" style="max-width: 950px;">
+            <div>
+                <h3 class="m-0 text-warning fw-bold"><i class="fas fa-sliders"></i> Espace Gérant - Symphonie</h3>
+            </div>
+            <div class="d-flex gap-2">
+                <a href="/admin/download-qrcode" class="btn btn-warning btn-sm fw-bold d-flex align-items-center gap-2 px-3">
+                    <i class="fas fa-qrcode"></i> Télécharger QR Code
+                </a>
+            </div>
         </div>
     </div>
-</div>
 
     <div class="container" style="max-width: 950px;">
         <div class="row mb-4">
@@ -604,70 +664,66 @@ HTML_ADMIN = """
     <script>
         let fullMenu = [];
 
-       async function loadData() {
-    const res = await fetch('/api/menu');
-    fullMenu = await res.json();
-    
-    const select = document.getElementById('newItemCat');
-    select.innerHTML = '<option value="">Choisir la catégorie...</option>';
-    fullMenu.forEach(c => select.innerHTML += `<option value="${c.id}">${c.category}</option>`);
+        async function loadData() {
+            const res = await fetch('/api/menu');
+            fullMenu = await res.json();
+            
+            const select = document.getElementById('newItemCat');
+            select.innerHTML = '<option value="">Choisir la catégorie...</option>';
+            fullMenu.forEach(c => select.innerHTML += `<option value="${c.id}">${c.category}</option>`);
 
-    const container = document.getElementById('adminMenu');
-    container.innerHTML = '';
+            const container = document.getElementById('adminMenu');
+            container.innerHTML = '';
 
-    fullMenu.forEach((cat) => {
-        let html = `
-        <div class="card mb-3 cat-card" data-id="${cat.id}">
-            <div class="bg-dark text-white p-3 d-flex justify-content-between align-items-center">
-                <div class="d-flex align-items-center gap-2">
-                    <!-- Poignée de glissement pour la catégorie -->
-                    <i class="fas fa-grip-vertical text-warning opacity-75 drag-handle-cat me-2" style="cursor: grab; font-size: 1.2rem;"></i>
-                    <input type="text" class="form-control form-control-sm bg-transparent text-warning fw-bold border-0" value="${cat.category}" onchange="updateCategory(${cat.id}, this.value)" style="font-size: 1.3rem; width: 340px;">
-                </div>
-                <button class="btn btn-sm btn-outline-danger" onclick="deleteCategory(${cat.id})"><i class="fas fa-trash"></i></button>
-            </div>
-            <div class="items-container" data-catid="${cat.id}">`;
-
-        if(cat.items.length === 0) {
-            html += `<div class="p-3 text-center text-muted">Aucun plat dans cette catégorie (masquée côté client).</div>`;
-        } else {
-            cat.items.forEach((item) => {
-                html += `
-                <div class="item-row d-flex justify-content-between align-items-center p-2 border-bottom bg-white" data-id="${item.id}">
-                    <div class="d-flex align-items-center gap-2" style="flex: 1;">
-                        <!-- Poignée de glissement pour le plat -->
-                        <i class="fas fa-grip-lines text-muted drag-handle-item me-2" style="cursor: grab;"></i>
-                        <input type="text" class="form-control form-control-sm border-0 fw-semibold" value="${item.name}" onchange="updateItem(${item.id}, this.value, ${item.price})" style="max-width: 420px; font-size: 1.15rem;">
+            fullMenu.forEach((cat) => {
+                let html = `
+                <div class="card mb-3 cat-card" data-id="${cat.id}">
+                    <div class="bg-dark text-white p-3 d-flex justify-content-between align-items-center">
+                        <div class="d-flex align-items-center gap-2">
+                            <i class="fas fa-grip-vertical text-warning opacity-75 drag-handle-cat me-2" style="cursor: grab; font-size: 1.2rem;"></i>
+                            <input type="text" class="form-control form-control-sm bg-transparent text-warning fw-bold border-0" value="${cat.category}" onchange="updateCategory(${cat.id}, this.value)" style="font-size: 1.3rem; width: 340px;">
+                        </div>
+                        <button class="btn btn-sm btn-outline-danger" onclick="deleteCategory(${cat.id})"><i class="fas fa-trash"></i></button>
                     </div>
-                    <div class="controls-group d-flex align-items-center gap-2">
-                        <input type="number" class="form-control form-control-sm text-center fw-bold" style="width: 95px; font-size: 1.05rem;" value="${item.price}" onchange="updateItem(${item.id}, null, this.value)">
-                        <span class="text-muted" style="font-size: 0.85rem;">DA</span>
-                        <button class="btn btn-sm ${item.available ? 'btn-success' : 'btn-secondary'}" onclick="toggle(${item.id})" style="width: 85px;">
-                            ${item.available ? 'En Stock' : 'Rupture'}
-                        </button>
-                        <button class="btn btn-sm btn-outline-danger" onclick="deleteItem(${item.id})"><i class="fas fa-trash"></i></button>
-                    </div>
-                </div>`;
+                    <div class="items-container" data-catid="${cat.id}">`;
+
+                if(cat.items.length === 0) {
+                    html += `<div class="p-3 text-center text-muted">Aucun plat dans cette catégorie (masquée côté client).</div>`;
+                } else {
+                    cat.items.forEach((item) => {
+                        html += `
+                        <div class="item-row d-flex justify-content-between align-items-center p-2 border-bottom bg-white" data-id="${item.id}">
+                            <div class="d-flex align-items-center gap-2" style="flex: 1;">
+                                <i class="fas fa-grip-lines text-muted drag-handle-item me-2" style="cursor: grab;"></i>
+                                <input type="text" class="form-control form-control-sm border-0 fw-semibold" value="${item.name}" onchange="updateItem(${item.id}, this.value, ${item.price})" style="max-width: 420px; font-size: 1.15rem;">
+                            </div>
+                            <div class="controls-group d-flex align-items-center gap-2">
+                                <input type="number" class="form-control form-control-sm text-center fw-bold" style="width: 95px; font-size: 1.05rem;" value="${item.price}" onchange="updateItem(${item.id}, null, this.value)">
+                                <span class="text-muted" style="font-size: 0.85rem;">DA</span>
+                                <button class="btn btn-sm ${item.available ? 'btn-success' : 'btn-secondary'}" onclick="toggle(${item.id}, this)" style="width: 85px;">
+                                    ${item.available ? 'En Stock' : 'Rupture'}
+                                </button>
+                                <button class="btn btn-sm btn-outline-danger" onclick="deleteItem(${item.id})"><i class="fas fa-trash"></i></button>
+                            </div>
+                        </div>`;
+                    });
+                }
+                html += `</div></div>`;
+                container.innerHTML += html;
+            });
+
+            new Sortable(container, {
+                handle: '.drag-handle-cat',
+                animation: 150
+            });
+
+            document.querySelectorAll('.items-container').forEach(el => {
+                new Sortable(el, {
+                    handle: '.drag-handle-item',
+                    animation: 150
+                });
             });
         }
-        html += `</div></div>`;
-        container.innerHTML += html;
-    });
-
-    // Activer le glisser-déposer sur les catégories
-    new Sortable(container, {
-        handle: '.drag-handle-cat',
-        animation: 150
-    });
-
-    // Activer le glisser-déposer sur les plats à l'intérieur de chaque catégorie
-    document.querySelectorAll('.items-container').forEach(el => {
-        new Sortable(el, {
-            handle: '.drag-handle-item',
-            animation: 150
-        });
-    });
-}
 
         async function addCategory() {
             const name = document.getElementById('newCatName').value;
@@ -679,11 +735,6 @@ HTML_ADMIN = """
 
         async function updateCategory(id, name) {
             await fetch(`/api/categories/${id}`, {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name})});
-        }
-
-        async function moveCategory(id, direction) {
-            await fetch(`/api/categories/${id}/move/${direction}`, {method: 'POST'});
-            loadData();
         }
 
         async function deleteCategory(id) {
@@ -711,11 +762,6 @@ HTML_ADMIN = """
             await fetch(`/api/items/${id}`, {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name: newName, price: newPrice})});
         }
 
-        async function moveItem(id, direction) {
-            await fetch(`/api/items/${id}/move/${direction}`, {method: 'POST'});
-            loadData();
-        }
-
         async function deleteItem(id) {
             if(confirm("Supprimer ce plat ?")) {
                 await fetch(`/api/items/${id}`, {method: 'DELETE'});
@@ -723,9 +769,37 @@ HTML_ADMIN = """
             }
         }
 
-        async function toggle(id) {
-            await fetch(`/api/toggle/${id}`, {method: 'POST'});
-            loadData();
+        // --- OPTIMISTIC UI TOGGLE ---
+        async function toggle(id, btnElement) {
+            const isCurrentlyAvailable = btnElement.classList.contains('btn-success') || btnElement.textContent.includes('En Stock');
+            const newStatus = !isCurrentlyAvailable;
+
+            // 1. Changement visuel instantané (0 ms)
+            if (newStatus) {
+                btnElement.textContent = "En Stock";
+                btnElement.className = "btn btn-sm btn-success";
+            } else {
+                btnElement.textContent = "Rupture";
+                btnElement.className = "btn btn-sm btn-secondary";
+            }
+            btnElement.style.width = "85px";
+
+            // 2. Traitement réseau en arrière-plan
+            try {
+                const res = await fetch(`/api/toggle/${id}`, {method: 'POST'});
+                if (!res.ok) throw new Error();
+            } catch (err) {
+                // Annulation en cas d'erreur de connexion
+                if (isCurrentlyAvailable) {
+                    btnElement.textContent = "En Stock";
+                    btnElement.className = "btn btn-sm btn-success";
+                } else {
+                    btnElement.textContent = "Rupture";
+                    btnElement.className = "btn btn-sm btn-secondary";
+                }
+                btnElement.style.width = "85px";
+                alert("Erreur lors du changement de disponibilité.");
+            }
         }
 
         loadData();
