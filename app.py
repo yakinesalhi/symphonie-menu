@@ -191,6 +191,18 @@ def requires_auth(f):
     return decorated
 
 # --- API ROUTES ---
+@app.route('/ping')
+def ping():
+    try:
+        conn = get_db()  
+        cur = conn.cursor()
+        cur.execute('SELECT 1;')
+        cur.close()
+        conn.close()
+        return "OK", 200
+    except Exception as e:
+        return f"Database error: {str(e)}", 500
+
 @app.route('/api/menu')
 def get_menu():
     global MENU_CACHE
